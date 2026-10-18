@@ -1,0 +1,8 @@
+{
+  "name": "wisplab-cli",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Headless CLI over the WispLab engines (blot-workbench / pathology-workbench / pcr-workbench). Zero runtime deps: dispatches to each repo's own tsx / Playwright.",
+  "bin": { "wisplab": "cli.mjs" }
+}

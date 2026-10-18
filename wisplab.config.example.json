@@ -1,0 +1,9 @@
+{
+  "repos": {
+    "wb": "/你的路径/blot-workbench",
+    "ihc": "/你的路径/pathology-workbench",
+    "pcr": "/你的路径/pcr-workbench"
+  },
+  "ihc": { "devPort": 5173 },
+  "allowPaths": ["~/Downloads", "/tmp"]
+}
