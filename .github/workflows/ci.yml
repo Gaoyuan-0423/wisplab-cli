@@ -51,11 +51,14 @@ jobs:
           ref: ${{ steps.engines.outputs.pcr }}
           path: .engines/pcr
           persist-credentials: false
-      - run: npm ci --no-audit --no-fund
+      - name: Install locked wb dependencies
+        run: npm ci --no-audit --no-fund
         working-directory: .engines/wb
-      - run: npm ci --no-audit --no-fund
+      - name: Install locked pcr dependencies
+        run: npm ci --no-audit --no-fund
         working-directory: .engines/pcr
-      - run: npm ci --no-audit --no-fund
+      - name: Install locked ihc dependencies
+        run: npm ci --no-audit --no-fund
         working-directory: .engines/ihc
       - run: npx --no-install playwright install --with-deps chromium
         working-directory: .engines/ihc

@@ -70,3 +70,9 @@ These commands use placeholder paths and sample/gene names; replace them with va
 This review does not claim a full rerun of historical M1/M3/M4 validation, the independent Python calibration, every GUI feature, every file variant or every operating system. New upstream GUI capabilities are not automatically exposed through the bridge. See the README for the current interface limits.
 
 协议更新依据 / Protocol references: [MCP versioning](https://modelcontextprotocol.io/specification/2026-07-28/basic/versioning), [MCP discovery](https://modelcontextprotocol.io/specification/2026-07-28/server/discover).
+
+## 后续集成回归 / Follow-up integration regressions
+
+上述表格记录 0.2.0 的检查修订。0.4.1 的自动回归采用 [engines.lock.json](../engines.lock.json)；qPCR 更新到仅补齐 Linux 依赖锁的修订。合成数据、数值预期和覆盖边界见 [集成测试说明](../tests/integration/README.md)。
+
+The table above records the 0.2.0 check. Automated regressions in 0.4.1 use the engine lock manifest, including a qPCR revision that only restores the Linux dependency lock entry. See the integration guide for fixtures, expected values and coverage limits.
