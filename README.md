@@ -116,3 +116,7 @@ wisplab doctor > environment.json
 分析追溯 / Analysis provenance: [格式与边界 / Format and limits](docs/provenance.md).
 
 真实引擎回归 / Real-engine regression: [安装、固定版本与合成数据 / Setup, pinned revisions and fixtures](tests/integration/README.md).
+
+单个内参即可进行 qPCR 分析（例如 `--ref GAPDH`）；多个内参为可选功能。 / One reference gene is sufficient (for example `--ref GAPDH`); multiple reference genes are optional.
+
+生物学分组 / Biological groups: [Guide](docs/qpcr-groups.md).

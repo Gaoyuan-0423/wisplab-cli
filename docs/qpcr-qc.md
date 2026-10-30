@@ -27,6 +27,6 @@ wisplab pcr plate.csv --ref GAPDH --control C1 --exclude-rows 12,15
 
 `qcReport` includes thresholds, per-well reasons, exclusion IDs/reasons, replicate counts and SD before/after filtering. IDs refer to rows extracted after the detected header, not necessarily physical spreadsheet row numbers. Filtering is a single pass, never repeated until a group passes. Automatic QC does not exclude NTC or standards; manual NTC exclusion is rejected to preserve contamination evidence. Explicit `excludeRows` still applies in `report` mode.
 
-**重复单位 / Replicate unit:** 相同样本×靶标的孔被引擎聚合；现有 p 值使用逐孔数据。报告明确标注 `statisticalUnit: well`，`biologicalReplicateCount: null`。样本标签、Group 列或技术复孔数量不能自动证明独立生物学重复；本更新没有新增生物学分组统计，也未改变上游统计算法。
+**重复单位 / Replicate unit:** 相同样本×靶标的孔被引擎聚合；现有 p 值使用逐孔数据。报告明确标注 `statisticalUnit: well`，`biologicalReplicateCount: null`。样本标签、Group 列或技术复孔数量不能自动证明独立生物学重复；显式分组统计见 [生物学重复](qpcr-groups.md)，另存于 `biologicalGroups`。
 
-Wells sharing a sample/target are aggregated; existing engine p-values use well-level values. Reports explicitly identify `statisticalUnit: well` and `biologicalReplicateCount: null`. Sample labels, a Group column or technical-well counts do not establish independent biological replication. This update does not introduce biological-group inference or change the engine's statistical algorithms.
+Wells sharing a sample/target are aggregated; existing engine p-values use well-level values. Reports explicitly identify `statisticalUnit: well` and `biologicalReplicateCount: null`. Sample labels, a Group column or technical-well counts do not establish independent biological replication. Explicit group inference is available separately in `biologicalGroups`; see [biological replicates](qpcr-groups.md).

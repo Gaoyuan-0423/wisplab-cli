@@ -58,6 +58,20 @@ test('pinned real WispLab engines', {timeout:240000}, async t=>{
     assert.equal(filtered.ntcReport[0].verdict,'contaminated');assert.equal(filtered.qcReport.replication.biologicalReplicateCount,null);
     const none=runPcr({...pcrArgs,qc:{maxCq:1},qcMode:'exclude'});assert.ok(none.files[0].error);assert.equal(none.provenance.status,'error');
   });
+  await t.test('single-reference biological groups use sample means and match a known Welch result',()=>{
+    const samples={C1:'C',C2:'C',C3:'C',S1:'S',S2:'S',S3:'S'};
+    const data=['Sample,Target,Cq'];
+    Object.keys(samples).forEach((sample,i)=>{for(let rep=0;rep<(i===0?5:2);rep++)data.push(`${sample},GAPDH,20`,`${sample},T,${20+[4,5,6,2,3,4][i]}`);});
+    const input=file('biological.csv',data.join('\n'));
+    const args={files:[input],refGenes:['GAPDH'],biologicalDesign:{samples,controlGroup:'C'}};
+    const r=runPcr(args);assertManifest(r,'pcr');const b=r.files[0].biologicalGroups;
+    assert.deepEqual(r.files[0].refGenesUsed,['GAPDH']);assert.equal(b.summaries[1].nBiological,3);
+    close(b.summaries[1].foldChange,4);close(b.comparisons[0].pValue,0.07048399691021993,1e-10);
+    close(b.comparisons[0].df,4);assert.equal(b.units[0].technicalWellCount,5);
+    const cli=JSON.parse(execFileSync(process.execPath,[join(root,'cli.mjs'),'pcr',input,'--config',cfgPath,'--ref','GAPDH','--groups',JSON.stringify(samples),'--control-group','C'],{encoding:'utf8'}));
+    assert.deepEqual(cli.files[0].biologicalGroups,b);
+    assert.throws(()=>runPcr({...args,controlSamples:['S1']}),/conflicts/);
+  });
   await t.test('actual binary XLSX equals CSV; zipped RDML honors declared and explicit efficiencies',()=>{
     const require=createRequire(join(cfg.repos.pcr,'package.json'));const XLSX=require('xlsx');const {zipSync,strToU8}=require('fflate');
     const book=XLSX.utils.book_new();XLSX.utils.book_append_sheet(book,XLSX.utils.aoa_to_sheet(plateMatrix),'Plate');

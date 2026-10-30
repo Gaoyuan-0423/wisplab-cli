@@ -225,3 +225,13 @@ test('MCP forwards QC options and rejects unknown QC keys', async (t) => {
   assert.deepEqual(f.calls[0].qc,args.qc);assert.equal(f.calls[0].qcMode,'exclude');assert.deepEqual(f.calls[0].excludeRows,[2]);
   assert.equal((await handler(call('pcr_analyze',{files:[f.image],qc:{typo:3}}))).result.isError,true);
 });
+
+test('MCP forwards explicit biological design and supports a single reference',async t=>{
+ const f=fixture(t),handle=createMcpHandler(f);
+ const design={samples:{C1:'C',S1:'S'},controlGroup:'C'};
+ const reply=await handle(call('pcr_analyze',{files:[f.image],refGenes:['GAPDH'],biologicalDesign:design}));
+ assert.equal(reply.result.isError,false);assert.deepEqual(f.calls[0].refGenes,['GAPDH']);
+ assert.deepEqual(f.calls[0].biologicalDesign,design);
+ const bad=await handle(call('pcr_analyze',{files:[f.image],biologicalDesign:{...design,paired:true}}));
+ assert.ok(bad.error || bad.result.isError);
+});

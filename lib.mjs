@@ -7,6 +7,7 @@ import { homedir, tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { trackAnalysisSync, trackAnalysis } from "./provenance.mjs";
+import { normalizeBiologicalDesign } from "./pcr-groups.mjs";
 import { normalizePcrOptions } from "./pcr-options.mjs";
 
 export const CLI_DIR = dirname(fileURLToPath(import.meta.url));
@@ -95,7 +96,7 @@ export function runWb({ files, lanes = null, strip = null, bg = "local", radius 
     }));
 }
 
-export function runPcr({ files, refGenes = [], controlSamples = [], efficiencies = {}, qc = {}, qcMode = "report", excludeRows = [] }) {
+export function runPcr({ files, refGenes = [], controlSamples = [], efficiencies = {}, qc = {}, qcMode = "report", excludeRows = [], biologicalDesign = null }) {
   validateFiles(files);
   for (const [name, values] of Object.entries({ refGenes, controlSamples })) {
     if (!Array.isArray(values) || values.some((v) => typeof v !== "string" || !v.trim())) throw new Error(`${name}: expected nonempty gene/sample names`);
@@ -105,7 +106,15 @@ export function runPcr({ files, refGenes = [], controlSamples = [], efficiencies
     if (!gene.trim() || !Number.isFinite(value) || value <= 0 || value > 200) throw new Error("efficiencies: percentages must be > 0 and <= 200");
   }
   if (excludeRows.length && files.length !== 1) throw new Error("Manual row exclusion requires exactly one input file");
-  const parameters = { refGenes, controlSamples, efficiencies, ...normalizePcrOptions({ qc, qcMode, excludeRows }) };
+  biologicalDesign = normalizeBiologicalDesign(biologicalDesign);
+  if (biologicalDesign) {
+    if (files.length !== 1) throw new Error("Biological design requires exactly one input file");
+    const controls = Object.keys(biologicalDesign.samples).filter(s => biologicalDesign.samples[s] === biologicalDesign.controlGroup);
+    if (controlSamples.length && JSON.stringify([...new Set(controlSamples)].sort()) !== JSON.stringify([...controls].sort()))
+      throw new Error("controlSamples conflicts with biological controlGroup");
+    controlSamples = controls;
+  }
+  const parameters = { refGenes, controlSamples, efficiencies, biologicalDesign, ...normalizePcrOptions({ qc, qcMode, excludeRows }) };
   const engineDir = repo("pcr");
   return trackAnalysisSync({ analysis: "pcr", engineDir, bridgeDir: CLI_DIR, parameters, inputs: files.map(path => ({path})) },
     () => runRunner(engineDir, "pcr-run.ts", { files: files.map(f => resolve(f)), ...parameters }));

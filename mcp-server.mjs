@@ -119,14 +119,14 @@ return [
   {
     name: "pcr_analyze",
     description:
-      "Analyze qPCR inputs (CSV/TXT/TSV, Excel XLSX/XLS/XLSM/XLSB, or RDML; first worksheet with a warning for multiple worksheets) with the pcr-workbench engine: replicate pooling, multi-reference-gene normalization, ΔΔCt (Livak) or Pfaffl efficiency-corrected fold change, NTC report, Welch t / ANOVA+Dunnett on individual ΔCt.",
+      "Analyze qPCR inputs (CSV/TXT/TSV, Excel XLSX/XLS/XLSM/XLSB, or RDML; first worksheet with a warning for multiple worksheets) with the pcr-workbench engine: replicate pooling, single-reference normalization (multiple references optional), ΔΔCt (Livak) or Pfaffl efficiency-corrected fold change, NTC report, Welch t / ANOVA+Dunnett on individual ΔCt.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
       required: ["files"],
       properties: {
         files: { type: "array", minItems: 1, items: { type: "string", minLength: 1 }, description: "数据文件路径（CSV/TXT/TSV、XLSX/XLS/XLSM/XLSB 或 RDML；Excel 使用首个工作表）" },
-        refGenes: { type: "array", items: { type: "string", minLength: 1 }, description: "内参基因名（Target 列中的名字）" },
+        refGenes: { type: "array", items: { type: "string", minLength: 1 }, description: "内参基因名，单个即可；多个可选 / One reference gene is sufficient" },
         controlSamples: { type: "array", items: { type: "string", minLength: 1 }, description: "对照样本名（Sample 列中的名字）" },
         qc: { type: "object", additionalProperties: false, properties: {
           minCq: { type: "number", minimum: 0 }, maxCq: { type: "number", minimum: 0 },
@@ -135,11 +135,16 @@ return [
         }, description: "Optional QC thresholds; repSD reports groups only / 可选质控阈值，repSD仅报告组" },
         qcMode: { type: "string", enum: ["report", "exclude"], description: "Default report; exclude explicitly removes flagged non-NTC wells / 默认只报告" },
         excludeRows: { type: "array", items: { type: "integer", minimum: 1 }, description: "Explicit row IDs from qcReport, applied to each input file / 按报告行ID显式排除" },
+        biologicalDesign: { type: "object", additionalProperties: false, required: ["samples", "controlGroup"], properties: {
+          samples: { type: "object", additionalProperties: { type: "string", minLength: 1 } },
+          controlGroup: { type: "string", minLength: 1 },
+        }, description: "Explicit independent biological sample-to-group mapping; unpaired only / 显式独立生物学样本分组，仅非配对" },
         efficiencies: { type: "object", additionalProperties: { type: "number", exclusiveMinimum: 0 }, description: "每基因扩增效率百分比，如 {\"LDHA\":92}；覆盖 RDML 声明效率，无效率信息时用 100（Livak）" },
       },
     },
     call: (a) => engine.runPcr({
       files: a.files ?? [], refGenes: a.refGenes ?? [], controlSamples: a.controlSamples ?? [],
+      biologicalDesign: a.biologicalDesign ?? null,
       efficiencies: a.efficiencies ?? {}, qc: a.qc ?? {}, qcMode: a.qcMode ?? "report", excludeRows: a.excludeRows ?? [],
     }),
   },
