@@ -12,56 +12,47 @@ description: >-
   image quantification.
 ---
 
-# qPCR 相对定量分析（代理操作手册）
+# qPCR 相对定量 / Relative qPCR analysis
 
-用户不需要学任何命令。你负责：**问清两件事 → 执行 `wisplab pcr` → 把结果翻译成生物学结论**。
+使用 `wisplab pcr` 或 MCP `pcr_analyze`。以实际解析和统计输出为准，不自行猜测缺少的实验设计。
+Use `wisplab pcr` or MCP `pcr_analyze`. Base the report on actual parsing and statistical output; do not invent missing experimental design.
 
-## 第 0 步：确认工具与输入
+## 环境与输入 / Setup and inputs
 
-```sh
-which wisplab || node ~/Downloads/WispLab预印本验证/wisplab-cli/cli.mjs
-```
+运行 `wisplab doctor`；没有全局命令时使用 `node /path/to/wisplab-cli/cli.mjs doctor`。需要配置的 PCR 仓库及其 `tsx` 与依赖。
+Run `wisplab doctor`, or `node /path/to/wisplab-cli/cli.mjs doctor` at the installed location. The configured PCR repository, its `tsx`, and dependencies are required.
 
-输入是仪器导出表（QuantStudio/CFX/LC480 的 CSV/TXT 均可，含元数据头也能自动识别表头行）。
+复用上游导入器，支持 CSV/TXT/TSV（UTF-8/GBK）、Excel（XLSX/XLS/XLSM/XLSB）、RDML。Excel 只取首个工作表，多工作表有警告；不要声称自动合并所有工作表。
+The upstream importer supports CSV/TXT/TSV (UTF-8/GBK), Excel (XLSX/XLS/XLSM/XLSB), and RDML. Excel uses only the first worksheet, with a warning for multiple sheets; do not claim all worksheets are merged.
 
-## 第 1 步：必须先问清（或从上下文确认）
+## 实验信息与执行 / Experimental details and execution
 
-1. **内参基因叫什么**（Target 列里的名字，如 GAPDH、ACTB；可多个，会自动池化）。
-2. **哪些样本是对照组**（Sample 列里的准确名字，如 C1、KYOU-D0；可多个，会合并池化）。
-
-## 第 2 步：执行
-
-| 用户说 | 参数 |
-| --- | --- |
-| "GAPDH 和 ACTB 做内参" | `--ref GAPDH,ACTB` |
-| "C1、C2 是对照" | `--control C1,C2` |
-| "LDHA 引物效率 200%" / "效率 92%" | `--eff "LDHA=200"`（百分制；全部默认 100 = Livak） |
+从已有上下文确认内参基因、对照样本准确名称，以及技术/生物学重复如何编码。仅缺少必要信息时询问。不要把自动默认内参或对照当成用户确认的设计。
+Establish exact reference-gene and control-sample names, and how technical/biological replicates are encoded, from existing context. Ask only for missing essentials. Do not treat automatically chosen defaults as a user-confirmed design.
 
 ```sh
-wisplab pcr "<表>" --ref GAPDH,ACTB --control AiW002-2-D0,KYOU-D0
+wisplab pcr /path/to/plate.csv --ref GAPDH,ACTB --control C1,C2
+wisplab pcr /path/to/plate.csv --ref GAPDH --control C1 --eff "LDHA=92;GAPDH=99"
 ```
 
-## 第 3 步：结果解读（给生物学结论，不要倒 JSON）
+效率输入是百分数：92 表示 92%，不是倍率；100% 对应每周期倍率 2。RDML 声明效率会应用，显式 `--eff` 覆盖对应基因。没有提供的效率按引擎默认值处理。不要把 200 当成“标准 100% 效率”的另一种写法。
+Efficiency inputs are percentages: 92 means 92%, not an amplification factor; 100% corresponds to a factor of 2 per cycle. RDML-declared efficiencies are applied, with explicit `--eff` overriding the corresponding genes. Missing efficiencies use engine defaults. Do not use 200 as another notation for standard 100% efficiency.
 
-读 `files[0].results[]`，每条是「样本 × 目标基因」：
+## 结果解读 / Interpreting results
 
-| 字段 | 呈现方式 |
-| --- | --- |
-| `foldChange` | 相对对照的表达倍数（>1 上调，<1 下调）——**主结果** |
-| `deltaCt` / `ddCt` | 方法中间量（Pfaffl 模式下 ddCt 无意义，别展示） |
-| `pValue` / `pAdjusted` | p 值与 Dunnett 校正后 p（vs 对照）；statMethod 注明用了哪种检验 |
-| `effMode` / statMethod 含 "Pfaffl" | 提醒用户已做效率校正 |
+读取 `files[].results`，并核对 `refGenesUsed`、`controlSamples`、`effMode`、`warnings`、`ntcReport` 与逐文件 `error`。展示样本、基因、`foldChange`、适用的 p 值及 `statMethod`；保留 `null`，不把缺失统计量写成不显著。
+Read `files[].results` and check `refGenesUsed`, `controlSamples`, `effMode`, `warnings`, `ntcReport`, and per-file `error`. Report sample, gene, `foldChange`, applicable p-values, and `statMethod`. Preserve `null`; do not interpret unavailable statistics as nonsignificance.
 
-结论句式：「相对对照，CAMK2A 在 AiW002-2-D7 中表达 5.05 倍（Dunnett 校正 p=7.2e-4，**）；GRIN1 26.7 倍（p=3.2e-4，**）」。
+`pValue` 的含义由 `statMethod` 决定：ANOVA 分支是总体检验，`pAdjusted` 才是相对对照的 Dunnett 校正结果；Welch 分支报告相应比较。效率校正影响 fold change，不应自行声称所有统计也自动改用效率校正后的表达量。
+Interpret `pValue` according to `statMethod`: under ANOVA it is the omnibus test, while `pAdjusted` is the Dunnett-adjusted comparison to control; the Welch branch reports its comparison. Efficiency correction affects fold change; do not claim all tests automatically operate on efficiency-corrected expression.
 
-**必须翻译的警告**：
-- `warnings` 里「内参未检出」「NTC 提前扩增」＝该基因/该板结果不可信，如实告知；
-- `NON_POSITIVE_NET` 不适用本模块；PCR 侧注意「Task=NTC 或样本名 NTC 开头」的孔会被自动剔除。
+如实报告内参缺失、NTC 和重复质量警告。当前桥接接口不提供上游界面的交互式分组、孔排除或全部 QC 设置；Cq 上下限、绝对偏差和复孔 SD 参数当前未启用，不应把相应警告缺失当成 QC 通过。需这些功能时转到上游应用。不要把技术重复当独立生物学重复来扩大结论。
+Report missing references, NTC findings, and replicate-quality warnings accurately. The bridge does not expose interactive grouping, well exclusions, or full QC settings; Cq limits, absolute-deviation, and replicate-SD settings are currently disabled, so absence of these warnings is not a QC pass. Use the upstream app when needed. Do not treat technical replicates as independent biological replicates to broaden conclusions.
 
-## 用户要验证数字时
+## 验证 / Verification
 
-两种方式：(a) `wisplab verify-pcr`——对真实 QuantStudio 导出跑 4 场景独立参考比对（Livak/Pfaffl ≤1e-09、统计 ≤1e-08、深尾部 Dunnett 回归）；(b) 用户拿到别处（如 AI 自己写的脚本）算的 fold change → 整理成 `[{target, sample, foldChange}]` 后 `wisplab grade pcr <提交.json>` 评分。
+保存输入、参数和引擎修订。`verify-pcr /path/to/validation` 会执行另行取得的可信 `dump_app.ts` 与 `reference_check.py`，需要对应数据、Python 环境；`grade pcr` 需要相邻的 `wisplab-benchmark` 及材料。历史通过值不可直接套用到新版本或新数据。
+Record inputs, parameters, and engine revisions. `verify-pcr /path/to/validation` executes separately obtained, trusted `dump_app.ts` and `reference_check.py` and needs their data and Python environment. `grade pcr` requires the adjacent `wisplab-benchmark` and materials. Historical passing values do not automatically validate new versions or data.
 
-## 兜底
-
-CLI 不可用：tsx 直调仓库引擎（pcr-workbench 仓库 AGENTS.md 有完整配方；⚠ stats.ts 的 Dunnett 求积已修复，不要回退旧实现）。
+计算本地运行；AI 客户端可能将工具结果或附件发送到模型服务。
+Computation is local; the AI client may send tool results or attachments to its model provider.

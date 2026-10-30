@@ -11,66 +11,48 @@ description: >-
   colocalization (use wisplab-if-colocalization), Western blots, or qPCR.
 ---
 
-# IHC／染色定量（代理操作手册）
+# IHC／染色定量 / IHC and histology quantification
 
-用户不需要学任何命令。你负责：**执行 `wisplab ihc` → 把 JSON 翻译成结论文**。
+使用 `wisplab ihc` 或 MCP `ihc_quantify`，报告实际引擎输出及其限制。
+Use `wisplab ihc` or MCP `ihc_quantify` and report actual engine output and its limits.
 
-## 第 0 步：确认工具
+## 环境 / Setup
 
-```sh
-which wisplab || node ~/Downloads/WispLab预印本验证/wisplab-cli/cli.mjs
-```
+运行 `wisplab doctor`；未安装全局命令时使用 `node /path/to/wisplab-cli/cli.mjs doctor`。IHC/IF 需要配置的病理仓库中的 Vite、Playwright 和 Chromium。调用会启动本地服务并在结束后回收；端口冲突时修改 `ihc.devPort`。
+Run `wisplab doctor`, or `node /path/to/wisplab-cli/cli.mjs doctor` at the installed location. IHC/IF require Vite, Playwright, and Chromium from the configured pathology setup. Calls start and clean up a local server; change `ihc.devPort` for a port conflict.
 
-首次运行会自动起停 vite（最多约 15 秒），属正常；端口冲突在
-`~/Downloads/WispLab预印本验证/wisplab-cli/wisplab.config.json` 改 `ihc.devPort`。
+## 输入与执行 / Input and execution
 
-## 第 1 步：选预设
-
-| 用户说 | 参数 |
+| 染色 / Stain | 参数 / Option |
 | --- | --- |
-| 免疫组化 / DAB 棕色 / IHC | `--profile h_dab`（默认） |
-| 苏木精伊红 / H&E / HE | `--profile h_eosin` |
-| Masson / 三色 / 胶原蓝 | `--profile masson` |
+| H-DAB / IHC | `--profile h_dab`（默认 / default） |
+| H&E | `--profile h_eosin` |
+| Masson | `--profile masson` |
 
 ```sh
-wisplab ihc "<图>" [--profile 预设]
+wisplab ihc /path/to/section.tif --profile h_dab
+wisplab ihc /path/to/section.tif --profile h_dab --control-tif /path/to/negative.tif
 ```
 
-接受 JPG/TIFF/PNG（1024px 以上效果最好；16 位 TIFF 直接支持）。
+接受 JPEG/PNG/TIFF。病理引擎在最长边超过 4096 像素时降采样，16 位 TIFF 转成 8 位工作像素，不是原始 16 位像素强度定量。厂商全切片格式需先在采集软件中导出受支持的图像。
+JPEG/PNG/TIFF are accepted. The pathology engine downsamples images longer than 4096 pixels and converts 16-bit TIFF into 8-bit working pixels; this is not raw 16-bit intensity quantification. Export supported images from acquisition software for proprietary whole-slide formats.
 
-## 第 2 步：有对照片时必须用
+对照片标定当前限 H-DAB；使用与样本条件匹配的可信阴性对照片。阈值按对照片的 0.1% 假阳率目标计算，不保证样本上的实际假阳率也为 0.1%。无对照片时使用引擎默认阈值，保留低分离度等警告。
+Control calibration currently supports H-DAB only. Use a suitable negative control acquired under matching conditions. Its 0.1% false-positive target is estimated on the control and does not guarantee that rate on the sample. Without a control, retain warnings from the engine's default thresholding.
 
-用户给了未染色/阴性对照片：
+## 结果 / Results
 
-```sh
-wisplab ihc "<样本>" --control-tif "<对照片>"
-```
+读取 `files[].overall`、`thresholdUsed`、`backgroundLevel`、`warnings` 和 `qc`。`positiveFraction`、`labelingIndex` 是比例，展示百分数时乘 100。报告检出的阳性核和总核数量。
+Read `files[].overall`, `thresholdUsed`, `backgroundLevel`, `warnings`, and `qc`. Multiply `positiveFraction` and `labelingIndex` by 100 when presenting percentages. Report positive and total detected nuclei.
 
-阈值改为按对照片 0.1% 假阳率标定——**弥漫背景或弱样本必须用这个**，否则整图 Otsu 会把背景计成阳性。对照片格式需 TIFF。
+`hScore` 来自检测核的平均染色强度分级，不能泛称为所有膜/胞质标记的临床 H-score，也不能未经验证代替人工病理评分。核分割错误会影响核计数、标注指数和 H-score。
+`hScore` is derived from intensity categories of detected nuclei. Do not present it as a universal clinical H-score for membrane/cytoplasmic markers or an unvalidated replacement for manual pathology scoring. Segmentation errors affect counts, labeling index, and H-score.
 
-## 第 3 步：结果解读（给结论，不要倒 JSON）
+当前接口是整图默认参数；不提供手工 ROI、标尺标定、全部分割选项或模型选择。不能编造个/mm² 密度。需可视化复核时使用上游界面。
+The bridge uses whole-image defaults without manual ROIs, scale calibration, all segmentation controls, or model selection. Do not invent per-mm² density. Use the upstream GUI for visual review.
 
-读 `files[0]`：
+保存输入、参数和引擎修订。`grade ihc` 依赖另行安装的相邻 `wisplab-benchmark` 与对应材料；旧校准数字不是本次结果的验证。
+Record inputs, parameters, and engine revisions. `grade ihc` requires the separately installed adjacent `wisplab-benchmark` and materials; old calibration numbers do not validate the current result.
 
-| 字段 | 呈现方式 |
-| --- | --- |
-| `overall.positiveFraction` | 阳性面积 X.X%（目标蛋白表达/染色面积占比） |
-| `overall.hScore` | H-score 0–300（膜/质标记的临床惯用读出；核标记也可用） |
-| `overall.positiveNuclei / totalNuclei` | 阳性核 X / Y |
-| `overall.labelingIndex` | 标注指数（**只对核标记有意义**，膜标记如 CD20/HER2 请引导用户看 H-score） |
-| `thresholdUsed` + 背景值 | 实际生效阈值 |
-| `qc.otsuSeparation` | <0.35 时必须提示"直方图无双峰，阈值不可靠，建议对照片标定" |
-
-结论句式示例：「该图 DAB 阳性面积 12.3%，H-score 85（弱-中等），检出 1,240 个核中 18.2% 呈阳性」。
-
-## 体检建议（主动给）
-
-- `warnings` 含阈值/饱和/组织占比提示时逐条翻译成建议（如"建议对照片标定""降低曝光重扫"）。
-- 弥漫性胞质背景会让整图阳性面积与 LI 偏高——此时强调核级指标（阳性核数/H-score）或建议对照片标定。
-- 绝对密度（个/mm²）需图像带标尺标定 μm/px；官网缩略图没有标尺，不要编造密度。
-
-## 兜底与验证
-
-- CLI 不可用：vite dev + Playwright 动态 import 引擎（pathology-workbench 仓库 AGENTS.md 有完整配方与禁忌：整图定阈、Ruifrok 求逆法、H-score 语义）。
-- 用户要求验证数字：`wisplab grade ihc <提交.json>`（10 ROI 基准，通过线 ≤2.5pp；同解码器下实际 ≤0.6pp）。
-- 厂商图仅本机；结果数字可外发。
+计算本地运行；AI 客户端的数据传输取决于客户端设置。
+Computation is local; AI-client data transfers depend on client settings.

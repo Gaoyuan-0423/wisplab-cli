@@ -1,174 +1,134 @@
-# WispLab AI 定量助手 · 上手指南（给同事/新用户）
+# WispLab CLI 与 AI 助手上手指南
 
-适合谁：想用 AI 助手做 **Western blot、IHC/染色、IF 共定位、qPCR** 定量的实验研究者。
-特点：**全程本地计算，实验数据不出你的电脑**；你只说中文自然语言，AI 负责跑引擎和给结论表。
+**中文** | [English](GETTING-STARTED.en.md) · [返回介绍](README.md)
 
-整体两层：
+本指南安装本地 CLI/MCP 桥和三个分析引擎。你可以直接运行命令，也可以让支持终端或 MCP 的 AI 客户端代为调用。
 
-- **WispLab 网页版**（https://wisplab.top 及 wb/pcr/pathology 子域）：浏览器打开即用，零安装，人工操作。
-- **本地 AI 助手**（本指南）：在你电脑上装好三引擎 + 一个 CLI/MCP 桥，之后在任何支持 MCP 或终端的 AI 客户端里用自然语言驱动定量。以下全部讲这一层。
+## 1. 准备环境
 
----
-
-## 一、15 分钟安装（一次性）
-
-### 0. 前提
-
-- macOS / Linux / Windows（WSL），**Node.js ≥ 22**（`node -v` 检查），git。
-- 一个 AI 客户端：ZCode、Codex CLI，或任何支持 MCP 的应用。
-
-### 1. 克隆三个引擎仓库并安装依赖
+需要 Git、Node.js ≥ 22.12、npm，以及 macOS、Linux 或 Windows WSL 环境；具体引擎的要求以各自仓库为准。先运行 `node --version`。下面假定四个仓库位于同一个父目录；命令中的路径和样本名都需要替换为自己的值。
 
 ```sh
 git clone https://github.com/Gaoyuan-0423/blot-workbench.git
 git clone https://github.com/Gaoyuan-0423/pathology-workbench.git
 git clone https://github.com/Gaoyuan-0423/pcr-workbench.git
-cd blot-workbench && npm install && cd ..
-cd pathology-workbench && npm install && cd ..
-cd pcr-workbench && npm install && cd ..
+git clone https://github.com/Gaoyuan-0423/wisplab-cli.git
+
+(cd blot-workbench && npm ci)
+(cd pathology-workbench && npm ci && npx playwright install chromium)
+(cd pcr-workbench && npm ci)
+cd wisplab-cli
 ```
 
-每个约 1–2 分钟。路径随意，后面会登记。
+请安装开发依赖：WB/qPCR 需要其仓库内的 `tsx`，IHC/IF 需要 Vite、Playwright 与对应版本的 Chromium。不要使用 `--omit=dev`。如果所选旧引擎版本没有锁文件或缺少上述依赖，按该引擎的安装说明处理；`doctor` 会列出仍缺少的项目。Linux 上 Chromium 可能还需要系统依赖，按 Playwright 的安装提示补齐。
 
-### 2. 克隆 wisplab-cli
+桥接包本身无需 `npm install`；安装与升级依赖会访问软件源，分析过程使用本地引擎。
 
-```sh
-git clone https://github.com/Gaoyuan-0423/wisplab-cli.git && cd wisplab-cli
-```
-
-### 3. 登记你的仓库路径
+## 2. 配置路径并检查
 
 ```sh
 cp wisplab.config.example.json wisplab.config.json
 ```
 
-编辑 `wisplab.config.json`，把三个路径改成**你自己的克隆位置**：
+编辑配置。例如四个仓库互为同级目录、实验数据放在 `~/data` 时：
 
 ```json
 {
   "repos": {
-    "wb": "/你的路径/blot-workbench",
-    "ihc": "/你的路径/pathology-workbench",
-    "pcr": "/你的路径/pcr-workbench"
+    "wb": "../blot-workbench",
+    "ihc": "../pathology-workbench",
+    "pcr": "../pcr-workbench"
   },
-  "ihc": { "devPort": 5173 }
+  "ihc": { "devPort": 5173 },
+  "allowPaths": ["~/data", "/tmp"]
 }
 ```
 
-### 4. 可选：全局命令
+相对引擎路径以配置文件为基准；`~` 会展开为用户主目录。MCP 输入、对照片和验证材料必须位于 `allowPaths` 里；符号链接也按实际目标路径检查。只添加你希望工具读取的目录。
 
 ```sh
-cd ~/wisplab-cli && npm link     # 之后任何目录可直接敲 wisplab
+node cli.mjs doctor
+node cli.mjs --help
+node cli.mjs --version
+npm link                       # 可选：之后可用 wisplab 代替 node cli.mjs
 ```
 
-### 5. 安装 4 个 AI 技能（推荐）
+`doctor` 的 `ready: true` 表示所检查的本地依赖存在；同时记录引擎 `revision` 和 `dirty`。它不会更新引擎或证明数值正确。使用多套配置时可传 `--config /path/to/config.json`，或设置 `WISPLAB_CONFIG`；显式路径优先。
 
-本仓库 `skills/` 下自带 4 个技能目录（`wisplab-wb-quantification`、`wisplab-ihc-quantification`、`wisplab-if-colocalization`、`wisplab-qpcr-analysis`，各含一个 SKILL.md），拷到你 AI 客户端的技能目录（ZCode：`~/.agents/skills/`）：
+## 3. 先跑一次明确的分析
+
+安装全局命令后：
 
 ```sh
-cp -R skills/* ~/.agents/skills/
+wisplab wb /path/to/blot.png --lanes 6 --bg local --control 2
+wisplab ihc /path/to/section.tif --profile h_dab
+wisplab if /path/to/duplex.png
+wisplab pcr /path/to/plate.csv --ref GAPDH --control NC
 ```
 
-重启客户端后生效——**这些技能教 AI 怎么拼命令、看图定泳道、解读结果，你只管说中文**。
+未执行 `npm link` 时，在 CLI 目录下把 `wisplab` 换成 `node cli.mjs`。
 
-### 6. 可选：注册 MCP server
-
-在 AI 客户端的 MCP 配置里加（以 Codex 的 `config.toml` 风格为例，ZCode 同理填 command/args）：
-
-```toml
-[mcp_servers.wisplab]
-command = "node"
-args = ["/你的路径/wisplab-cli/mcp-server.mjs"]
-```
-
-装了技能后这条可省——技能走终端调用；MCP 的好处是结构化工具调用与路径防护。
-
----
-
-## 二、怎么用（三种方式等价，选顺手的）
-
-### 方式 A：自然语言（装了技能后最常用）
-
-直接对 AI 说人话 + 给文件路径：
-
-> 「这是我的 QuantStudio 导出：~/data/plate1.csv。GAPDH 做内参，NC 组是对照，帮我算相对表达。」
-
-> 「定量这张膜：~/data/blot1.png，6 个泳道，最左是 marker 不要算，泳道 2 是对照，rolling ball 50。」
-
-> 「这张 IHC 切片阳性面积多少？H-score 多少？」
-
-AI 会自己拼命令、跑引擎、把结果整理成表格并解读（见第三节真实样例）。
-
-### 方式 B：让 AI 调 MCP 工具
-
-装了 MCP 后，AI 会自动改用结构化工具调用（`pcr_analyze`、`wb_quantify`……），效果相同，路径防护更强（只允许读你允许的目录）。
-
-### 方式 C：手动命令（想精确控制时）
-
-```sh
-wisplab wb 泡图.png --strip "140,85,160,350" --lanes 6 --bg rolling:50 --control 2
-wisplab ihc 切片.tif --control-tif 阴性对照片.tif
-wisplab if 双染图.jpg
-wisplab pcr plate1.csv --ref GAPDH --control NC
-wisplab grade wb 我的提交.json      # 给 AI/脚本的算数打分（67 项基准）
-```
-
----
-
-## 三、三个真实例子（输出的样子）
-
-### 例 1 · qPCR（真实 QuantStudio 导出）
-
-你说：「分析 ~/data/RELATIVE_example.csv，GAPDH 和 ACTB 做内参，AiW002-2-D0 和 KYOU-D0 是对照。」
-
-AI 回（节选）：
-
-| 基因 | 样本 | 相对表达 | Dunnett 校正 p | 显著性 |
-| --- | --- | --- | --- | --- |
-| CAMK2A | AiW002-2-D7 | 5.05× | 7.2e-4 | ** |
-| GRIN1 | AiW002-2-D7 | 26.7× | 3.2e-4 | ** |
-| PAX6 | AiW002-2-D7 | 0.14×（下调） | 8.9e-6 | *** |
-
-并附：所用内参与对照、NTC 报告、每条警告的人话解释。
-
-### 例 2 · Western blot
-
-你说：「定量 ~/data/blot1.png，6 泳道，泳道 2 是对照。」
-
-AI 先看图定位面板条带行（多面板截图会自动裁条带），然后输出：
-
-| 泳道 | 净信号 | 相对泳道 2 |
+| 分析 | 必须核对的信息 | 输出位置 |
 | --- | --- | --- |
-| 1 | 173,214 | 1.000 |
-| 2 | 2,712 | 0.016 |
-| … | … | … |
+| WB | 原图 PNG/TIFF、泳道数、亮/暗信号、对照泳道；多面板图还需 `--strip y,h,x0,x1` | `images[].lanes[]`：`net`、`ratio`、`warnings` |
+| IHC | 染色预设、图像质量；H-DAB 可加 `--control-tif negative.tif` | `files[].overall`、`thresholdUsed`、`warnings`、`qc` |
+| IF | 图像的红/绿通道分别代表什么；当前 CLI 不支持更换通道 | `files[].coloc`：Pearson、Manders、阈值 |
+| qPCR | `Target` 中的内参名称、`Sample` 中的对照名称、实验重复含义 | `files[].results`、`refGenesUsed`、`controlSamples`、`warnings`、`ntcReport` |
 
-并注明：背景方法（rolling ball r=50，与 ImageJ 像素级一致）、有无饱和像素警告。
+qPCR 复用上游导入器：支持 CSV/TXT/TSV（UTF-8/GBK）、Excel（XLSX/XLS/XLSM/XLSB）和 RDML。Excel 只使用第一个工作表；多工作表输入会有警告。RDML 中声明的效率会被应用，显式 `--eff` 优先。效率以百分数输入，例如 `--eff "LDHA=92;GAPDH=99"` 表示 92% 和 99%，不是每周期扩增倍数。CLI 不提供交互式分组、孔排除或全部 QC 设置；Cq 上下限、绝对偏差和复孔 SD 参数当前未启用，不能将未报告这些问题解读为 QC 全部通过。
 
-### 例 3 · IHC
+逐文件分析错误会保留在 JSON 中，同时使 CLI 退出码为 1，MCP 返回 `isError: true`。即使运行成功，也要检查每个文件的 `warnings`。图像选择、重复设计和阈值不合适时，能够返回数值也不代表结果有效。WB 对照泳道净信号为正时其自身比值应为 1；净信号不为正时比值可能为 `null`。IHC 的核强度 H-score 需结合分割结果复核。
 
-你说：「这张 IHC 阳性面积多少？我这里有张阴性对照片。」
+## 4. 可选：安装 AI 技能
 
-AI 输出：阳性面积 X.X%、H-score（0–300）、阳性核/总核、生效阈值；有对照片时自动按 0.1% 假阳率标定阈值，并在直方图分离度低时主动提示「建议对照片标定」。
+`skills/` 中包含 WB、IHC、IF 和 qPCR 四个技能。先查看内容，再按客户端的技能目录规则安装。使用 `~/.agents/skills/` 的客户端可运行：
 
----
+```sh
+mkdir -p ~/.agents/skills
+cp -Rn skills/wisplab-* ~/.agents/skills/
+```
 
-## 四、常见问题
+此命令不覆盖同名已有文件；更新已有技能时需自行比较并替换。重新加载客户端后，可直接给出文件路径和分析要求，例如：
 
-| 问题 | 回答 |
+> 分析 /path/to/plate.csv，GAPDH 和 ACTB 做内参，C1、C2 是对照；请报告相对表达、所用统计方法和所有警告。
+
+> 定量 /path/to/blot.png 的目标面板，6 个泳道，最左的 marker 排除，泳道 2 为对照，使用 rolling ball 50。
+
+AI 必须使用实际输出，不应自行编造缺少的对照、内参、数值或检验结果。
+
+## 5. 可选：连接 MCP
+
+给支持 `mcpServers` 配置的客户端加入：
+
+```json
+{
+  "mcpServers": {
+    "wisplab": {
+      "command": "node",
+      "args": ["/path/to/wisplab-cli/mcp-server.mjs", "--config", "/path/to/wisplab.config.json"]
+    }
+  }
+}
+```
+
+不同客户端配置格式可能不同；要点是用 Node 启动 `mcp-server.mjs` 并传入配置绝对路径。客户端应列出五个工具：`wb_quantify`、`ihc_quantify`、`if_colocalize`、`pcr_analyze`、`pcr_verify`。后者需要另行取得可信的验证脚本和数据，普通分析不需要它。
+
+计算在本机执行，但 AI 客户端可能向模型服务发送提示词、结果或附件；本桥接程序的路径检查不决定这些传输行为。
+
+## 6. 常见问题与更新
+
+| 问题 | 处理方式 |
 | --- | --- |
-| 我的实验数据会上传吗？ | 不会。三引擎全部本地计算；MCP/CLI 只读你明确给出的文件路径。唯一例外：WB 的 BYOK 视觉泳道候选功能，需你在界面里**主动配置**自己的 AI API，且仅该功能联网。 |
-| 图是 JPG，wb 命令报错？ | WB 引擎按设计只收 TIFF/PNG（16 位也支持）。`sips -s format tiff 图.jpg --out 图.tif` 转换后再用。IHC/IF 接受 JPG。 |
-| 泳道/条带数识别错了？ | 泳道提议是半自动设计：你告诉 AI 泳道数和面板位置（多面板截图让 AI 先看图圈条带行），或直接手画。 |
-| 和 ImageJ 比准不准？ | 背景扣除与 ImageJ 逐像素一致（≥99.99%）；全流程净信号与独立参考实现相对差 ≤3.2e-04（记录见仓库验证文档）。 |
-| 基准里的图能给我吗？ | 厂商版权图不 redistribution；公开基准只含期望数字与来源 URL 清单，可自行从厂商页面获取复现。 |
-| 换电脑/换路径？ | 只改 `wisplab.config.json` 里的三个路径。 |
+| 配置找不到或路径错误 | 使用绝对 `--config`；运行 `doctor` 检查最终路径 |
+| 缺少 `tsx`、Vite 或 Chromium | 在对应引擎仓库安装锁定依赖；IHC 再执行 `npx playwright install chromium` |
+| IHC/IF 端口被占用 | 修改配置中的 `ihc.devPort`；程序不会复用未知的现有服务 |
+| MCP 拒绝路径 | 将数据所在目录加入 `allowPaths`；检查符号链接实际目标 |
+| WB 只有 JPG | 优先取得原始 PNG/TIFF；转格式无法消除 JPEG 压缩造成的误差 |
+| 需要 ROI、报告或叠加图 | 使用对应引擎界面；CLI 当前返回 JSON |
+| `grade` 或 `verify-pcr` 失败 | 检查另外分发的 benchmark/验证脚本、数据及运行依赖是否齐全 |
 
-## 五、更新与卸载
+更新前保存 `wisplab doctor` 输出和参数，检查各仓库的本地修改；在工作区干净且适合更新时，对所需仓库运行 `git pull --ff-only`。引擎更新后执行 `npm ci`；Playwright 更新后重新安装对应 Chromium。随后运行桥接测试、`doctor` 和自己的固定数据回归。
 
-- 更新：三个仓库 `git pull && npm install`；wisplab-cli `git pull`。
-- 卸载：`npm rm -g wisplab-cli`（若 link 过）+ 删目录 + 移除客户端 MCP 配置与技能目录。实验数据（在你自己的数据目录/浏览器 IndexedDB）不受影响。
+卸载全局链接可执行 `npm unlink -g wisplab-cli`，再从客户端移除本工具的 MCP 配置和技能。删除代码目录前先保存配置和需要保留的本地材料。
 
----
-
-*对应引擎版本：blot-workbench / pathology-workbench / pcr-workbench，tag `wisplab-paper-2026-10-17` 及之后。验证记录：各仓库验证文档与 Zenodo 存档（DOI 见项目主页）。*
+[完整能力与边界](README.md) · [问题记录](https://github.com/Gaoyuan-0423/wisplab-cli/issues) · [变更记录](https://github.com/Gaoyuan-0423/wisplab-cli/pulls)

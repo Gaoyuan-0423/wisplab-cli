@@ -1,31 +1,13 @@
 #!/usr/bin/env node
 /** wisplab CLI — 参数解析 + 调 lib.mjs（与 mcp-server.mjs 共用同一份引擎调度）。 */
+import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { runWb, runPcr, runIhc, runVerifyPcr, loadConfig } from "./lib.mjs";
+import { runWb, runPcr, runIhc, runVerifyPcr, config, doctor } from "./lib.mjs";
 
 const CLI_DIR = dirname(fileURLToPath(import.meta.url));
 const argv = process.argv.slice(2);
-
-function loadConfigCli() {
-  const i = argv.indexOf("--config");
-  loadConfig(i >= 0 ? argv[i + 1] : undefined);
-}
-loadConfigCli();
-
-const VALUE_FLAGS = new Set(["--lanes", "--strip", "--bg", "--signal", "--control", "--control-tif", "--profile", "--ref", "--eff"]);
-const opts = {};
-const positional = [];
-for (let i = 0; i < argv.length; i++) {
-  const a = argv[i];
-  if (a === "--config") { i += 1; continue; }
-  if (VALUE_FLAGS.has(a)) { opts[a.slice(2)] = argv[i + 1]; i += 1; continue; }
-  if (a.startsWith("--")) { opts[a.slice(2)] = true; continue; }
-  positional.push(a);
-}
-const cmd = positional[0] ?? null;
-const files = positional.slice(1).map((f) => resolve(f));
 
 const HELP = `wisplab — WispLab 三引擎无头定量（与 MCP server 共用同一调度）
 
@@ -36,58 +18,102 @@ const HELP = `wisplab — WispLab 三引擎无头定量（与 MCP server 共用�
   wisplab pcr <表...>  [--ref G1,G2] [--control C1,C2] [--eff "T=92;GAPDH=99"]
   wisplab grade <模块> <提交.json>   AI 分析评分（模块：pcr|ihc|wb|synthetic16）
   wisplab verify-pcr [验证目录]
+  wisplab doctor                 环境/引擎修订检查 / Check engine readiness
+  wisplab --version
 
 全局：--config <path> 指定仓库路径配置。`;
 
+function emitAnalysis(result) {
+  console.log(JSON.stringify(result, null, 2));
+  if ([...(result.files ?? []), ...(result.images ?? [])].some((item) => item.error)) process.exitCode = 1;
+}
+
 try {
-  if (!cmd || cmd === "-h" || cmd === "--help") {
+  const valueFlags = new Set(["config", "lanes", "strip", "bg", "signal", "control", "control-tif", "profile", "ref", "eff"]);
+  const opts = {};
+  const positional = [];
+  let literal = false;
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === "--" && !literal) { literal = true; continue; }
+    if (!literal && a.startsWith("-")) {
+      const flag = a === "-h" ? "help" : a.slice(2);
+      if (["help", "version", "coloc"].includes(flag)) opts[flag] = true;
+      else if (a.startsWith("--") && valueFlags.has(flag)) {
+        const value = argv[++i];
+        if (!value || value.startsWith("--")) throw new Error(`${a}: 缺少参数 / missing value`);
+        opts[flag] = value;
+      } else throw new Error(`未知选项 / Unknown option: ${a}`);
+    } else positional.push(a);
+  }
+  const cmd = positional[0] ?? null;
+  const files = positional.slice(1).map((f) => resolve(f));
+  if (opts.version) {
+    console.log(JSON.parse(readFileSync(join(CLI_DIR, "package.json"), "utf8")).version);
+  } else if (!cmd || cmd === "-h" || cmd === "--help" || opts.help) {
     console.log(HELP);
-  } else if (cmd === "wb") {
-    if (!files.length) throw new Error("wb：至少一个图像文件");
-    const bg = String(opts.bg ?? "local");
-    console.log(JSON.stringify(runWb({
-      files,
-      lanes: opts.lanes ? Number(opts.lanes) : null,
-      strip: typeof opts.strip === "string" ? opts.strip : null,
-      bg: bg.startsWith("rolling") ? "rolling" : "local",
-      radius: bg.startsWith("rolling") ? Number(bg.split(":")[1] ?? 50) : 50,
-      signal: String(opts.signal ?? "dark"),
-      controlLane: Number(opts.control ?? "1"),
-    }), null, 2));
-  } else if (cmd === "pcr") {
-    if (!files.length) throw new Error("pcr：至少一个数据表");
-    const eff = {};
-    for (const kv of String(opts.eff ?? "").split(";").filter(Boolean)) {
-      const [g, v] = kv.split("=");
-      eff[g.trim()] = Number(v);
-    }
-    console.log(JSON.stringify(runPcr({
-      files,
-      refGenes: String(opts.ref ?? "").split(",").filter(Boolean),
-      controlSamples: String(opts.control ?? "").split(",").filter(Boolean),
-      efficiencies: eff,
-    }), null, 2));
-  } else if (cmd === "ihc" || cmd === "if") {
-    if (!files.length) throw new Error(`${cmd}：至少一个图像文件`);
-    const coloc = cmd === "if" || Boolean(opts.coloc);
-    console.log(JSON.stringify(await runIhc({
-      files,
-      coloc,
-      profile: coloc ? "if_coloc" : String(opts.profile ?? "h_dab"),
-      controlTif: typeof opts["control-tif"] === "string" ? resolve(opts["control-tif"]) : null,
-    }), null, 2));
-  } else if (cmd === "grade") {
-    if (positional.length < 3) throw new Error("grade：用法 wisplab grade <pcr|ihc|wb|synthetic16> <submission.json>");
-    const gradePath = join(CLI_DIR, "..", "wisplab-benchmark", "grade.mjs");
-    const g = spawnSync(process.execPath, [gradePath, positional[1], positional[2]], { encoding: "utf8", stdio: "inherit" });
-    process.exitCode = g.status ?? 1;
-  } else if (cmd === "verify-pcr") {
-    const r = runVerifyPcr(positional[1]);
-    process.stdout.write(r.output);
-    process.exitCode = r.exitCode;
   } else {
-    console.log(HELP);
-    process.exitCode = 1;
+    const allowed = {
+      wb: ["lanes", "strip", "bg", "signal", "control"],
+      pcr: ["ref", "control", "eff"], ihc: ["profile", "control-tif", "coloc"], if: [],
+      grade: [], "verify-pcr": [], doctor: [],
+    };
+    if (!allowed[cmd]) throw new Error(`未知命令 / Unknown command: ${cmd}`);
+    for (const key of Object.keys(opts)) if (key !== "config" && !allowed[cmd].includes(key)) throw new Error(`--${key}: unsupported for ${cmd}`);
+    config(opts.config);
+    if (cmd === "doctor") {
+      const result = doctor();
+      console.log(JSON.stringify(result, null, 2));
+      process.exitCode = result.ready ? 0 : 1;
+    } else if (cmd === "wb") {
+      if (!files.length) throw new Error("wb：至少一个图像文件");
+      const bg = String(opts.bg ?? "local");
+      if (!/^(local|rolling(?::[1-9]\d*)?)$/.test(bg)) throw new Error("--bg: local | rolling[:radius]");
+      emitAnalysis(runWb({
+        files,
+        lanes: opts.lanes ? Number(opts.lanes) : null,
+        strip: typeof opts.strip === "string" ? opts.strip : null,
+        bg: bg.startsWith("rolling") ? "rolling" : "local",
+        radius: bg.startsWith("rolling") ? Number(bg.split(":")[1] ?? 50) : 50,
+        signal: String(opts.signal ?? "dark"),
+        controlLane: Number(opts.control ?? "1"),
+      }));
+    } else if (cmd === "pcr") {
+      if (!files.length) throw new Error("pcr：至少一个数据表");
+      const eff = {};
+      for (const kv of String(opts.eff ?? "").split(";").filter(Boolean)) {
+        const parts = kv.split("=");
+        if (parts.length !== 2 || !parts[0].trim() || !parts[1].trim()) throw new Error("--eff: expected GENE=92;REF=99");
+        eff[parts[0].trim()] = Number(parts[1]);
+      }
+      emitAnalysis(runPcr({
+        files,
+        refGenes: String(opts.ref ?? "").split(",").map((v) => v.trim()).filter(Boolean),
+        controlSamples: String(opts.control ?? "").split(",").map((v) => v.trim()).filter(Boolean),
+        efficiencies: eff,
+      }));
+    } else if (cmd === "ihc" || cmd === "if") {
+      if (!files.length) throw new Error(`${cmd}：至少一个图像文件`);
+      const coloc = cmd === "if" || Boolean(opts.coloc);
+      emitAnalysis(await runIhc({
+        files,
+        coloc,
+        profile: coloc ? "if_coloc" : String(opts.profile ?? "h_dab"),
+        controlTif: typeof opts["control-tif"] === "string" ? resolve(opts["control-tif"]) : null,
+      }));
+    } else if (cmd === "grade") {
+      if (positional.length < 3) throw new Error("grade：用法 wisplab grade <pcr|ihc|wb|synthetic16> <submission.json>");
+      const gradePath = join(CLI_DIR, "..", "wisplab-benchmark", "grade.mjs");
+      const g = spawnSync(process.execPath, [gradePath, positional[1], positional[2]], { encoding: "utf8", stdio: "inherit" });
+      process.exitCode = g.status ?? 1;
+    } else if (cmd === "verify-pcr") {
+      const r = runVerifyPcr(positional[1]);
+      process.stdout.write(r.output);
+      process.exitCode = r.exitCode;
+    } else {
+      console.log(HELP);
+      process.exitCode = 1;
+    }
   }
 } catch (err) {
   console.error(`wisplab: ${err.message}`);
