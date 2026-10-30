@@ -247,7 +247,7 @@ export function createMcpHandler({ cfg, engine = lib }) {
               .some((item) => item?.error !== undefined);
             return respond({ ...textResult(result), isError: fileErrors || (tool.name === "pcr_verify" && result.exitCode !== 0) });
           } catch (err) {
-            return respond({ ...textResult(`wisplab tool error / 工具错误：${err.message}`), isError: true });
+            return respond({ ...textResult(err.provenance ? {error: err.message, provenance: err.provenance} : `wisplab tool error / 工具错误：${err.message}`), isError: true });
           }
         }
         default:

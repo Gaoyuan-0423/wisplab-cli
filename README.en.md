@@ -112,3 +112,5 @@ The original README's 2026-10-18 M1/M3/M4 numbers were historical validation rec
 Track problems and changes through [Issues](https://github.com/Gaoyuan-0423/wisplab-cli/issues) and [Pull requests](https://github.com/Gaoyuan-0423/wisplab-cli/pulls). See [LICENSE](LICENSE).
 
 质控参数与排除规则 / QC and exclusion policy: [说明 / Guide](docs/qpcr-qc.md).
+
+分析追溯 / Analysis provenance: [格式与边界 / Format and limits](docs/provenance.md).
