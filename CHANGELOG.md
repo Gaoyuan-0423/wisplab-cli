@@ -1,5 +1,9 @@
 # Changelog / 更新记录
 
+## 0.6.0 — 2026-10-31
+
+- IHC 图像哈希绑定的参考值对照、误差与容差报告；本地厂商图复核脚本。 / Hash-bound IHC reference comparison and local vendor-image verification.
+
 ## 0.5.0 — 2026-10-30
 
 - 显式生物学重复分组，技术孔先聚合，Welch/Holm 与追溯；单内参支持及回归。 / Explicit biological groups, well aggregation, Welch/Holm and provenance; single-reference support.

@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 /** wisplab CLI — 参数解析 + 调 lib.mjs（与 mcp-server.mjs 共用同一份引擎调度）。 */
+import { createHash } from "node:crypto";
+import { compareIhcReference } from "./ihc-validation.mjs";
 import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
@@ -14,6 +16,7 @@ const HELP = `wisplab — WispLab 三引擎无头定量（与 MCP server 共用�
   wisplab wb  <图...>  [--lanes N] [--strip y,h,x0,x1] [--bg local|rolling[:半径]]
                        [--signal dark|light] [--control 泳道号]
   wisplab ihc <图...>  [--profile h_dab|h_eosin|masson] [--control-tif 对照片]
+  wisplab ihc-validate <result.json> <reference.json>  人工/独立参考值比较 / Compare sourced references
   wisplab if  <图...>                                  IF 双通道共定位
   wisplab pcr <表...>  [--ref GAPDH] [--control C1,C2] [--eff "T=92;GAPDH=99"]
                        [--min-cq N] [--max-cq N] [--abs-dev N] [--z-score N] [--rep-sd N]
@@ -60,12 +63,19 @@ try {
     const allowed = {
       wb: ["lanes", "strip", "bg", "signal", "control"],
       pcr: ["ref", "control", "eff", "min-cq", "max-cq", "abs-dev", "z-score", "rep-sd", "qc-mode", "exclude-rows", "groups", "control-group"], ihc: ["profile", "control-tif", "coloc"], if: [],
-      grade: [], "verify-pcr": [], doctor: [],
+      grade: [], "verify-pcr": [], doctor: [], "ihc-validate": [],
     };
     if (!allowed[cmd]) throw new Error(`未知命令 / Unknown command: ${cmd}`);
     for (const key of Object.keys(opts)) if (key !== "config" && !allowed[cmd].includes(key)) throw new Error(`--${key}: unsupported for ${cmd}`);
     config(opts.config);
-    if (cmd === "doctor") {
+    if (cmd === "ihc-validate") {
+      if (files.length !== 2) throw new Error("ihc-validate: expected result.json and reference.json");
+      const bytes = files.map(path => readFileSync(path));
+      const report = compareIhcReference(...bytes.map(data => JSON.parse(data)));
+      report.documents = bytes.map((data,index) => ({role:index===0?"analysis-result":"reference",sha256:createHash("sha256").update(data).digest("hex")}));
+      console.log(JSON.stringify(report,null,2));
+      if (["incomplete","outside-tolerance"].includes(report.status)) process.exitCode=1;
+    } else if (cmd === "doctor") {
       const result = doctor();
       console.log(JSON.stringify(result, null, 2));
       process.exitCode = result.ready ? 0 : 1;

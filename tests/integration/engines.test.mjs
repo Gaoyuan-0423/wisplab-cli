@@ -84,6 +84,13 @@ test('pinned real WispLab engines', {timeout:240000}, async t=>{
   });
   await t.test('real Chromium H-DAB regression and background-corrected control calibration',async()=>{
     const result=await runIhc({files:[hdab]});assertManifest(result,'ihc');const r=result.files[0];
+    const reference={schemaVersion:'wisplab.ihc-reference/v1',images:[{file:basename(hdab),sha256:result.provenance.inputs[0].before.sha256,
+      profile:'h_dab',scope:'whole-image',sourceKind:'synthetic',method:'Eight generated disks; this is not human annotation',metrics:{totalNuclei:8},tolerances:{totalNuclei:0}}]};
+    const resultPath=file('ihc-result.json',JSON.stringify(result)),referencePath=file('ihc-reference.json',JSON.stringify(reference));
+    const comparison=spawnSync(process.execPath,[join(root,'cli.mjs'),'ihc-validate',resultPath,referencePath],{encoding:'utf8'});
+    assert.equal(comparison.status,1,comparison.stderr);const compared=JSON.parse(comparison.stdout);
+    assert.equal(compared.status,'outside-tolerance');assert.equal(compared.records[0].metrics.totalNuclei.error,-4);
+    assert.equal(compared.documents.length,2);
     assert.equal(r.width,128);assert.equal(r.height,96);assert.equal(r.thresholdUsed,16);assert.equal(r.backgroundLevel,2);
     assert.equal(r.overall.totalNuclei,4);assert.equal(r.overall.positiveNuclei,4);assert.equal(r.overall.hScore,100);
     close(r.overall.positiveFraction,1192/12288);

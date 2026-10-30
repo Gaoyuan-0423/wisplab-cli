@@ -120,3 +120,5 @@ wisplab doctor > environment.json
 单个内参即可进行 qPCR 分析（例如 `--ref GAPDH`）；多个内参为可选功能。 / One reference gene is sufficient (for example `--ref GAPDH`); multiple reference genes are optional.
 
 生物学分组 / Biological groups: [Guide](docs/qpcr-groups.md).
+
+IHC 参考值与本地厂商图复核 / Reference comparisons and local vendor checks: [Guide](docs/ihc-validation.md).
