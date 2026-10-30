@@ -82,3 +82,16 @@ test('per-file analysis errors preserve JSON and set a failing exit code', (t) =
   assert.equal(result.status, 1);
   assert.equal(JSON.parse(result.stdout).files[0].error, 'No analyzable rows');
 });
+
+test('CLI passes explicit QC policy and rejects inconsistent thresholds', (t) => {
+  const {dir,cfg}=fixture(t);
+  const r=run(['pcr','plate.csv','--config',cfg,'--max-cq','35','--rep-sd','0.5','--qc-mode','exclude','--exclude-rows','2,3'],dir);
+  assert.equal(r.status,0,r.stderr);
+  const payload=JSON.parse(r.stdout).payload;
+  assert.equal(payload.qc.maxCq,35);assert.equal(payload.qc.repSD,0.5);
+  assert.equal(payload.qcMode,'exclude');assert.deepEqual(payload.excludeRows,[2,3]);
+  for(const args of [['--min-cq','30','--max-cq','20'],['--rep-sd','0'],['--qc-mode','auto'],['--exclude-rows','1,'],['--z-score','NaN']]) {
+    assert.notEqual(run(['pcr','plate.csv','--config',cfg,...args],dir).status,0);
+  }
+  assert.notEqual(run(['pcr','one.csv','two.csv','--config',cfg,'--exclude-rows','2'],dir).status,0);
+});

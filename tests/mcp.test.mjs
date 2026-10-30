@@ -214,3 +214,11 @@ test('stdio drains asynchronous calls at EOF and processes both requests in orde
     { completed: true, coloc: false }, { completed: true, coloc: true },
   ]);
 });
+
+test('MCP forwards QC options and rejects unknown QC keys', async (t) => {
+  const f=fixture(t);const handler=createMcpHandler(f);
+  const args={files:[f.image],qc:{maxCq:35,repSD:0.5},qcMode:'exclude',excludeRows:[2]};
+  assert.equal((await handler(call('pcr_analyze',args))).result.isError,false);
+  assert.deepEqual(f.calls[0].qc,args.qc);assert.equal(f.calls[0].qcMode,'exclude');assert.deepEqual(f.calls[0].excludeRows,[2]);
+  assert.equal((await handler(call('pcr_analyze',{files:[f.image],qc:{typo:3}}))).result.isError,true);
+});

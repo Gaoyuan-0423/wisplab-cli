@@ -46,8 +46,8 @@ Read `files[].results` and check `refGenesUsed`, `controlSamples`, `effMode`, `w
 `pValue` 的含义由 `statMethod` 决定：ANOVA 分支是总体检验，`pAdjusted` 才是相对对照的 Dunnett 校正结果；Welch 分支报告相应比较。效率校正影响 fold change，不应自行声称所有统计也自动改用效率校正后的表达量。
 Interpret `pValue` according to `statMethod`: under ANOVA it is the omnibus test, while `pAdjusted` is the Dunnett-adjusted comparison to control; the Welch branch reports its comparison. Efficiency correction affects fold change; do not claim all tests automatically operate on efficiency-corrected expression.
 
-如实报告内参缺失、NTC 和重复质量警告。当前桥接接口不提供上游界面的交互式分组、孔排除或全部 QC 设置；Cq 上下限、绝对偏差和复孔 SD 参数当前未启用，不应把相应警告缺失当成 QC 通过。需这些功能时转到上游应用。不要把技术重复当独立生物学重复来扩大结论。
-Report missing references, NTC findings, and replicate-quality warnings accurately. The bridge does not expose interactive grouping, well exclusions, or full QC settings; Cq limits, absolute-deviation, and replicate-SD settings are currently disabled, so absence of these warnings is not a QC pass. Use the upstream app when needed. Do not treat technical replicates as independent biological replicates to broaden conclusions.
+如实报告内参缺失、NTC 和重复质量警告。当前桥接接口不提供上游界面的交互式分组或全部上游设置；可配置逐孔 QC、复孔 SD 报告及显式行排除，默认不自动剔除；只启用部分规则不代表全部质控通过。不要把技术重复当独立生物学重复来扩大结论。
+Report missing references, NTC findings, and replicate-quality warnings accurately. The bridge does not expose interactive grouping or every upstream setting; Configurable per-well QC, replicate-SD reporting and explicit exclusions are available; report-only is the default. Do not treat technical replicates as independent biological replicates to broaden conclusions.
 
 ## 验证 / Verification
 
@@ -56,3 +56,5 @@ Record inputs, parameters, and engine revisions. `verify-pcr /path/to/validation
 
 计算本地运行；AI 客户端可能将工具结果或附件发送到模型服务。
 Computation is local; the AI client may send tool results or attachments to its model provider.
+
+质控参数与排除规则 / QC and exclusion policy: [说明 / Guide](../../docs/qpcr-qc.md).

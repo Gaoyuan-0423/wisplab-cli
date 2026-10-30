@@ -16,6 +16,7 @@ function fixture(t, kind, modules) {
     writeFileSync(path, code);
     source = source.replace(`<${kind.toUpperCase()}>/src/${name}.ts`, path);
   }
+  source = source.replaceAll("<CLI>", new URL("..", import.meta.url).href.replace(/\/$/, ""));
   const runner = join(dir, 'runner.mjs');
   writeFileSync(runner, source);
   return { dir, run(payload) {
@@ -79,8 +80,12 @@ function pcrFixture(t) {
       export function sheetToRawMatrix(wb, sheet) { if (sheet !== 'First') throw new Error('wrong worksheet'); return [['Sample','Target','Cq'],['C','T','20']]; }
     `,
     'core/sniff': `export function sniff() { return { headerRow: 0, mapping: { sample: 0, target: 1, cq: 2 }, format: 'test' }; }`,
+    'core/qc': `export function computeQcFlags() { return {}; }`,
+    'core/stats': `export function sd() { return 0; }`,
     'core/analysis': `
-      export function extractRows(rows) { return rows; }
+      export function isNtcRow() { return false; }
+      export function isStandardRow() { return false; }
+      export function extractRows(rows) { return rows.map((r,i) => ({id:i+1,sample:r[0],target:r[1],cq:Number(r[2]),excluded:false})); }
       export function analyzeDeltaDeltaCt(rows, config) { return { refGenesUsed: config.refGenes, controlSamples: config.controlSamples, effMode: true, efficiencies: config.efficiencies ?? {}, warnings: [], ntcReport: [], results: rows }; }
     `,
   });
@@ -96,8 +101,8 @@ test('PCR forwards binary files intact and reports first-sheet selection', t => 
   assert.equal(file.error, undefined);
   assert.equal(file.sheet, 'First');
   assert.equal(file.inputKind, 'workbook');
-  assert.match(file.warnings[0], /Only the first worksheet/);
-  assert.deepEqual(file.results, [['C', 'T', '20']]);
+  assert.ok(file.warnings.some(warning => /Only the first worksheet/.test(warning)));
+  assert.deepEqual(file.results, [{id:1,sample:'C',target:'T',cq:20,excluded:false}]);
 });
 
 test('PCR applies RDML efficiencies with explicit values taking precedence', t => {

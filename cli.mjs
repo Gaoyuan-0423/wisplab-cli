@@ -16,6 +16,8 @@ const HELP = `wisplab — WispLab 三引擎无头定量（与 MCP server 共用�
   wisplab ihc <图...>  [--profile h_dab|h_eosin|masson] [--control-tif 对照片]
   wisplab if  <图...>                                  IF 双通道共定位
   wisplab pcr <表...>  [--ref G1,G2] [--control C1,C2] [--eff "T=92;GAPDH=99"]
+                       [--min-cq N] [--max-cq N] [--abs-dev N] [--z-score N] [--rep-sd N]
+                       [--qc-mode report|exclude] [--exclude-rows 1,2]
   wisplab grade <模块> <提交.json>   AI 分析评分（模块：pcr|ihc|wb|synthetic16）
   wisplab verify-pcr [验证目录]
   wisplab doctor                 环境/引擎修订检查 / Check engine readiness
@@ -29,7 +31,7 @@ function emitAnalysis(result) {
 }
 
 try {
-  const valueFlags = new Set(["config", "lanes", "strip", "bg", "signal", "control", "control-tif", "profile", "ref", "eff"]);
+  const valueFlags = new Set(["config", "lanes", "strip", "bg", "signal", "control", "control-tif", "profile", "ref", "eff", "min-cq", "max-cq", "abs-dev", "z-score", "rep-sd", "qc-mode", "exclude-rows"]);
   const opts = {};
   const positional = [];
   let literal = false;
@@ -55,7 +57,7 @@ try {
   } else {
     const allowed = {
       wb: ["lanes", "strip", "bg", "signal", "control"],
-      pcr: ["ref", "control", "eff"], ihc: ["profile", "control-tif", "coloc"], if: [],
+      pcr: ["ref", "control", "eff", "min-cq", "max-cq", "abs-dev", "z-score", "rep-sd", "qc-mode", "exclude-rows"], ihc: ["profile", "control-tif", "coloc"], if: [],
       grade: [], "verify-pcr": [], doctor: [],
     };
     if (!allowed[cmd]) throw new Error(`未知命令 / Unknown command: ${cmd}`);
@@ -91,6 +93,10 @@ try {
         refGenes: String(opts.ref ?? "").split(",").map((v) => v.trim()).filter(Boolean),
         controlSamples: String(opts.control ?? "").split(",").map((v) => v.trim()).filter(Boolean),
         efficiencies: eff,
+        qc: Object.fromEntries(Object.entries({ minCq: "min-cq", maxCq: "max-cq", absDev: "abs-dev", zScore: "z-score", repSD: "rep-sd" })
+          .filter(([, flag]) => opts[flag] !== undefined).map(([key, flag]) => [key, Number(opts[flag])])),
+        qcMode: opts["qc-mode"] ?? "report",
+        excludeRows: opts["exclude-rows"] === undefined ? [] : opts["exclude-rows"].split(",").map(Number),
       }));
     } else if (cmd === "ihc" || cmd === "if") {
       if (!files.length) throw new Error(`${cmd}：至少一个图像文件`);

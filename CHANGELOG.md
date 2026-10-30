@@ -1,5 +1,10 @@
 # Changelog / 更新记录
 
+## 0.3.0 — 2026-10-30
+
+- qPCR 接入上游逐孔 QC、可选阈值、显式排除和复孔 SD 报告；默认不自动排除。 / Add engine-backed QC, optional thresholds, explicit exclusions and replicate SD reporting; default to report only.
+- 标明逐孔统计与未知生物学重复数，保留 NTC 污染报告。 / Identify well-level inference and unknown biological replication; preserve NTC reporting.
+
 ## 0.2.0 — 2026-10-30
 
 - 增加中英文 README、上手指南及四个技能的双语说明，纠正历史校准、隐私与能力边界。 / Add Chinese/English documentation and skill instructions; clarify historical calibration, privacy and interface limits.

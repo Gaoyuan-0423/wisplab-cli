@@ -6,6 +6,8 @@ import { dirname, join, resolve } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+import { normalizePcrOptions } from "./pcr-options.mjs";
+
 export const CLI_DIR = dirname(fileURLToPath(import.meta.url));
 
 export function expandPath(value, base = process.cwd()) {
@@ -47,7 +49,8 @@ function tsxBin(repoPath) {
 function runRunner(repoPath, runner, payload, timeoutMs = 300_000) {
   const src = readFileSync(join(CLI_DIR, "runners", runner), "utf8")
     .replaceAll("<WB>", pathToFileURL(repoPath).href)
-    .replaceAll("<PCR>", pathToFileURL(repoPath).href);
+    .replaceAll("<PCR>", pathToFileURL(repoPath).href)
+    .replaceAll("<CLI>", pathToFileURL(CLI_DIR).href);
   const tmpDir = mkdtempSync(join(tmpdir(), "wisplab-run-"));
   const runnerPath = join(tmpDir, runner);
   try {
@@ -90,7 +93,7 @@ export function runWb({ files, lanes = null, strip = null, bg = "local", radius 
   });
 }
 
-export function runPcr({ files, refGenes = [], controlSamples = [], efficiencies = {} }) {
+export function runPcr({ files, refGenes = [], controlSamples = [], efficiencies = {}, qc = {}, qcMode = "report", excludeRows = [] }) {
   validateFiles(files);
   for (const [name, values] of Object.entries({ refGenes, controlSamples })) {
     if (!Array.isArray(values) || values.some((v) => typeof v !== "string" || !v.trim())) throw new Error(`${name}: expected nonempty gene/sample names`);
@@ -99,9 +102,11 @@ export function runPcr({ files, refGenes = [], controlSamples = [], efficiencies
   for (const [gene, value] of Object.entries(efficiencies)) {
     if (!gene.trim() || !Number.isFinite(value) || value <= 0 || value > 200) throw new Error("efficiencies: percentages must be > 0 and <= 200");
   }
+  if (excludeRows.length && files.length !== 1) throw new Error("Manual row exclusion requires exactly one input file");
   return runRunner(repo("pcr"), "pcr-run.ts", {
     files: files.map((f) => resolve(f)),
     refGenes, controlSamples, efficiencies,
+    ...normalizePcrOptions({ qc, qcMode, excludeRows }),
   });
 }
 
@@ -229,7 +234,7 @@ export function doctor() {
   const cfg = config();
   const requirements = {
     wb: ["node_modules/.bin/tsx", "src/real/pixels.ts", "src/real/rolling-ball.ts"],
-    pcr: ["node_modules/.bin/tsx", "src/core/analysis.ts", "src/core/sniff.ts", "src/core/parse.ts"],
+    pcr: ["node_modules/.bin/tsx", "src/core/analysis.ts", "src/core/sniff.ts", "src/core/parse.ts", "src/core/qc.ts", "src/core/stats.ts"],
     ihc: ["node_modules/.bin/vite", "src/core/analysis/engine.ts", "src/core/image/decode.ts"],
   };
   const engines = Object.fromEntries(Object.entries(requirements).map(([name, files]) => {

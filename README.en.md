@@ -106,7 +106,9 @@ The original README's 2026-10-18 M1/M3/M4 numbers were historical validation rec
 - IHC/IF use whole-image defaults. The bridge does not expose the upstream GUI's manual ROIs, scale calibration, all segmentation settings, or model selection. Nuclear-intensity H-score is not a universal clinical marker score; without scale calibration, per-mm² density cannot be meaningfully reported.
 - The pathology engine downsamples images with a side longer than 4096 pixels and converts 16-bit TIFF to 8-bit working pixels. WB has a separate 8/16-bit image workflow.
 - IF uses the engine's default R/G channels and exposes no channel-selection parameter. The upstream GUI offers additional controls. Verify the meaning of channels in pseudocolor images.
-- qPCR reuses the upstream importer, but exposes no interactive grouping, well exclusions, or full QC settings. Cq limits, absolute-deviation, and replicate-SD settings are currently disabled. Excel uses the first worksheet only. Supported formats are listed in [Getting started](GETTING-STARTED.en.md).
+- qPCR reuses the upstream importer, but exposes no interactive grouping or every upstream setting. Per-well QC, replicate-SD reporting and explicit exclusions are configurable; report-only is the default. Excel uses the first worksheet only. Supported formats are listed in [Getting started](GETTING-STARTED.en.md).
 - Analysis commands return JSON, without overlay images or full experiment reports. Use the corresponding engine GUI for visual review.
 
 Track problems and changes through [Issues](https://github.com/Gaoyuan-0423/wisplab-cli/issues) and [Pull requests](https://github.com/Gaoyuan-0423/wisplab-cli/pulls). See [LICENSE](LICENSE).
+
+质控参数与排除规则 / QC and exclusion policy: [说明 / Guide](docs/qpcr-qc.md).

@@ -75,7 +75,7 @@ wisplab pcr /path/to/plate.csv --ref GAPDH --control NC
 | IF | 图像的红/绿通道分别代表什么；当前 CLI 不支持更换通道 | `files[].coloc`：Pearson、Manders、阈值 |
 | qPCR | `Target` 中的内参名称、`Sample` 中的对照名称、实验重复含义 | `files[].results`、`refGenesUsed`、`controlSamples`、`warnings`、`ntcReport` |
 
-qPCR 复用上游导入器：支持 CSV/TXT/TSV（UTF-8/GBK）、Excel（XLSX/XLS/XLSM/XLSB）和 RDML。Excel 只使用第一个工作表；多工作表输入会有警告。RDML 中声明的效率会被应用，显式 `--eff` 优先。效率以百分数输入，例如 `--eff "LDHA=92;GAPDH=99"` 表示 92% 和 99%，不是每周期扩增倍数。CLI 不提供交互式分组、孔排除或全部 QC 设置；Cq 上下限、绝对偏差和复孔 SD 参数当前未启用，不能将未报告这些问题解读为 QC 全部通过。
+qPCR 复用上游导入器：支持 CSV/TXT/TSV（UTF-8/GBK）、Excel（XLSX/XLS/XLSM/XLSB）和 RDML。Excel 只使用第一个工作表；多工作表输入会有警告。RDML 中声明的效率会被应用，显式 `--eff` 优先。效率以百分数输入，例如 `--eff "LDHA=92;GAPDH=99"` 表示 92% 和 99%，不是每周期扩增倍数。CLI 不提供交互式分组或全部上游设置；Cq 上下限、绝对偏差和复孔 SD 参数当前未启用，不能将未报告这些问题解读为 QC 全部通过。
 
 逐文件分析错误会保留在 JSON 中，同时使 CLI 退出码为 1，MCP 返回 `isError: true`。即使运行成功，也要检查每个文件的 `warnings`。图像选择、重复设计和阈值不合适时，能够返回数值也不代表结果有效。WB 对照泳道净信号为正时其自身比值应为 1；净信号不为正时比值可能为 `null`。IHC 的核强度 H-score 需结合分割结果复核。
 
@@ -132,3 +132,5 @@ AI 必须使用实际输出，不应自行编造缺少的对照、内参、数�
 卸载全局链接可执行 `npm unlink -g wisplab-cli`，再从客户端移除本工具的 MCP 配置和技能。删除代码目录前先保存配置和需要保留的本地材料。
 
 [完整能力与边界](README.md) · [问题记录](https://github.com/Gaoyuan-0423/wisplab-cli/issues) · [变更记录](https://github.com/Gaoyuan-0423/wisplab-cli/pulls)
+
+质控参数与排除规则 / QC and exclusion policy: [说明 / Guide](docs/qpcr-qc.md).
