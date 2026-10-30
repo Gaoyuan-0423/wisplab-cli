@@ -106,7 +106,9 @@ wisplab doctor > environment.json
 - IHC/IF 当前走整图默认参数，不暴露上游界面的手工 ROI、标尺、全部分割设置或模型选择。核强度 H-score 不等同于所有标记的临床评分；未提供标尺时不输出可解释的每 mm² 密度。
 - 病理引擎对超过 4096 像素边长的图像降采样，16 位 TIFF 转为 8 位工作像素；WB 的 8/16 位图像流程与此不同。
 - IF 接口使用引擎默认的 R/G 通道，不提供通道选择参数；上游界面有更多选项。伪彩图需先核实实际通道含义。
-- qPCR 复用上游导入器，但 CLI 不提供交互式分组、孔排除或全部 QC 设置；Cq 上下限、绝对偏差和复孔 SD 参数当前未启用。Excel 只使用第一个工作表。具体格式见[上手指南](GETTING-STARTED.md)。
+- qPCR 复用上游导入器，但 CLI 不提供交互式分组或全部上游设置；可通过 CLI/MCP 配置 Cq、偏差、z 分数和复孔 SD 质控，默认只报告。Excel 只使用第一个工作表。具体格式见[上手指南](GETTING-STARTED.md)。
 - 分析命令输出 JSON，不导出叠加图或完整实验报告。需要可视化复核时使用相应引擎的界面。
 
 问题与变更通过 [Issues](https://github.com/Gaoyuan-0423/wisplab-cli/issues) 和 [Pull requests](https://github.com/Gaoyuan-0423/wisplab-cli/pulls) 记录。许可证见 [LICENSE](LICENSE)。
+
+质控参数与排除规则 / QC and exclusion policy: [说明 / Guide](docs/qpcr-qc.md).

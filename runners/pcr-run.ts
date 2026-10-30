@@ -5,9 +5,13 @@
  * 结果以 @@WISPLAB@@{json} 单行输出到 stdout。
  */
 import { readFileSync } from "node:fs";
-import { extractRows, analyzeDeltaDeltaCt } from "<PCR>/src/core/analysis.ts";
+import { extractRows, analyzeDeltaDeltaCt, isNtcRow, isStandardRow } from "<PCR>/src/core/analysis.ts";
 import { sniff } from "<PCR>/src/core/sniff.ts";
 import { readInputFile, sheetToRawMatrix } from "<PCR>/src/core/parse.ts";
+
+import { computeQcFlags } from "<PCR>/src/core/qc.ts";
+import { sd } from "<PCR>/src/core/stats.ts";
+import { preparePcrRows } from "<CLI>/pcr-qc.mjs";
 
 const payload = JSON.parse(process.argv[2]);
 const images = [];
@@ -27,11 +31,12 @@ for (const path of payload.files) {
       ...(input.kind === "rdml" ? input.targetEfficiencies : {}),
       ...(payload.efficiencies ?? {}),
     };
-    const out = analyzeDeltaDeltaCt(rows, {
+    const prepared = preparePcrRows(rows, payload, { computeQcFlags, sd, isNtcRow, isStandardRow });
+    const out = analyzeDeltaDeltaCt(prepared.rows, {
       refGenes: payload.refGenes,
       controlSamples: payload.controlSamples,
       efficiencies: Object.keys(efficiencies).length ? efficiencies : undefined,
-      qc: { minCq: NaN, maxCq: NaN, absDev: NaN, repSD: NaN },
+      qc: prepared.settings,
     });
     images.push({
       file: name,
@@ -42,7 +47,12 @@ for (const path of payload.files) {
       controlSamples: out.controlSamples,
       effMode: out.effMode,
       efficiencies: out.efficiencies,
+      qcReport: prepared.report,
+      ...(out.results.length === 0 ? { error: "No relative-expression results; inspect reference/control names and QC exclusions / 无相对表达结果，请检查内参、对照及排除行" } : {}),
       warnings: [
+        prepared.report.replication.note,
+        ...(prepared.report.flaggedRowIds.length ? [`QC flagged rows / 质控标记行: ${prepared.report.flaggedRowIds.join(", ")}`] : []),
+        ...(prepared.report.replicateGroups.some(group => group.highSD) ? ["High replicate SD; groups are reported, not automatically removed / 复孔SD超限仅报告"] : []),
         ...out.warnings,
         ...(input.kind === "workbook" && input.sheetNames.length > 1
           ? [`仅分析首个工作表 / Only the first worksheet was analyzed: ${sheet}`] : []),

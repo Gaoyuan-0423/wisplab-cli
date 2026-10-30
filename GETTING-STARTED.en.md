@@ -75,7 +75,7 @@ Without `npm link`, run from the CLI directory and replace `wisplab` with `node 
 | IF | What the red/green channels represent; this CLI cannot change channels | `files[].coloc`: Pearson, Manders, thresholds |
 | qPCR | Reference names from `Target`, control names from `Sample`, and the meaning of experimental replicates | `files[].results`, `refGenesUsed`, `controlSamples`, `warnings`, `ntcReport` |
 
-qPCR reuses the upstream importer for CSV/TXT/TSV (UTF-8/GBK), Excel (XLSX/XLS/XLSM/XLSB), and RDML. Only the first Excel worksheet is used, with a warning for multiple worksheets. RDML-declared efficiencies are applied; explicit `--eff` values take precedence. Enter efficiencies as percentages: `--eff "LDHA=92;GAPDH=99"` means 92% and 99%, not amplification factors per cycle. The CLI exposes no interactive grouping, well exclusions, or full QC settings. Cq limits, absolute-deviation, and replicate-SD settings are currently disabled; absence of those warnings is not a complete QC pass.
+qPCR reuses the upstream importer for CSV/TXT/TSV (UTF-8/GBK), Excel (XLSX/XLS/XLSM/XLSB), and RDML. Only the first Excel worksheet is used, with a warning for multiple worksheets. RDML-declared efficiencies are applied; explicit `--eff` values take precedence. Enter efficiencies as percentages: `--eff "LDHA=92;GAPDH=99"` means 92% and 99%, not amplification factors per cycle. The CLI exposes no interactive grouping or every upstream setting. Configurable per-well QC, replicate-SD reporting and explicit exclusions are available; report-only is the default and a subset of checks is not a complete QC pass.
 
 Per-file analysis errors remain in JSON and set CLI exit code 1 or MCP `isError: true`. Inspect each file's `warnings` even after success. A numeric result does not establish validity if image selection, replicate design, or thresholds are unsuitable. A WB control lane with positive net signal should have a ratio of 1 to itself; ratios may be `null` when control signal is nonpositive. Review IHC nuclear-intensity H-score alongside segmentation quality.
 
@@ -132,3 +132,5 @@ Before updates, save `wisplab doctor` output and analysis parameters, and inspec
 To remove the global link, run `npm unlink -g wisplab-cli`, then remove this tool's MCP configuration and skills from your client. Preserve needed configuration and local materials before deleting source directories.
 
 [Capabilities and limits](README.en.md) · [Issues](https://github.com/Gaoyuan-0423/wisplab-cli/issues) · [Pull requests](https://github.com/Gaoyuan-0423/wisplab-cli/pulls)
+
+质控参数与排除规则 / QC and exclusion policy: [说明 / Guide](docs/qpcr-qc.md).

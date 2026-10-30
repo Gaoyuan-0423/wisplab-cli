@@ -128,12 +128,19 @@ return [
         files: { type: "array", minItems: 1, items: { type: "string", minLength: 1 }, description: "数据文件路径（CSV/TXT/TSV、XLSX/XLS/XLSM/XLSB 或 RDML；Excel 使用首个工作表）" },
         refGenes: { type: "array", items: { type: "string", minLength: 1 }, description: "内参基因名（Target 列中的名字）" },
         controlSamples: { type: "array", items: { type: "string", minLength: 1 }, description: "对照样本名（Sample 列中的名字）" },
+        qc: { type: "object", additionalProperties: false, properties: {
+          minCq: { type: "number", minimum: 0 }, maxCq: { type: "number", minimum: 0 },
+          absDev: { type: "number", exclusiveMinimum: 0 }, zScore: { type: "number", exclusiveMinimum: 0 },
+          repSD: { type: "number", exclusiveMinimum: 0 },
+        }, description: "Optional QC thresholds; repSD reports groups only / 可选质控阈值，repSD仅报告组" },
+        qcMode: { type: "string", enum: ["report", "exclude"], description: "Default report; exclude explicitly removes flagged non-NTC wells / 默认只报告" },
+        excludeRows: { type: "array", items: { type: "integer", minimum: 1 }, description: "Explicit row IDs from qcReport, applied to each input file / 按报告行ID显式排除" },
         efficiencies: { type: "object", additionalProperties: { type: "number", exclusiveMinimum: 0 }, description: "每基因扩增效率百分比，如 {\"LDHA\":92}；覆盖 RDML 声明效率，无效率信息时用 100（Livak）" },
       },
     },
     call: (a) => engine.runPcr({
       files: a.files ?? [], refGenes: a.refGenes ?? [], controlSamples: a.controlSamples ?? [],
-      efficiencies: a.efficiencies ?? {},
+      efficiencies: a.efficiencies ?? {}, qc: a.qc ?? {}, qcMode: a.qcMode ?? "report", excludeRows: a.excludeRows ?? [],
     }),
   },
   {
