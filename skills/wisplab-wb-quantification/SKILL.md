@@ -10,58 +10,43 @@ description: >-
   CLI syntax. Not for IHC/IF histology images or qPCR tables.
 ---
 
-# WB 膜图定量（代理操作手册）
+# WB 定量 / Western blot quantification
 
-用户不需要学任何命令。你负责：**看图 → 构造命令 → 执行 → 把 JSON 翻译成表格**。
+使用 `wisplab wb` 或 MCP `wb_quantify`，把实际测量结果整理为表格。先利用用户已提供的信息；仅在缺少必要实验信息时询问。
+Use `wisplab wb` or MCP `wb_quantify` and summarize the actual measurements. Reuse information already provided; ask only for missing experimental details.
 
-## 第 0 步：确认工具
+## 环境 / Setup
 
-```sh
-which wisplab   # 有 → 直接用；没有 → node ~/Downloads/WispLab预印本验证/wisplab-cli/cli.mjs …
-```
+运行 `wisplab doctor`。若没有全局命令，使用已找到的 CLI 路径：`node /path/to/wisplab-cli/cli.mjs doctor`。不要假设作者电脑上的路径存在。
+Run `wisplab doctor`, or use `node /path/to/wisplab-cli/cli.mjs doctor` with the installed location. Do not assume an author's machine-specific path exists.
 
-## 第 1 步：看图定条带（多面板图必做）
+## 输入与参数 / Input and parameters
 
-1. `sips -g pixelWidth -g pixelHeight <图>` 拿**原始尺寸**（Read 工具会缩放显示，坐标要按比例换算回原始像素：原始坐标 = 显示坐标 × 原宽/显示宽）。
-2. 用 Read 看图，找到**目标面板**：条带行的顶部 y、每条泳道的横向范围；同时确认要排除的东西——左侧 marker 梯带列、右侧文字标注列、上下其他面板。
-3. 换算出 strip 四参数：`y` = 条带行顶部 − 约 30px（留背景余量）、`h` = 条带高 + 约 60px、`x0/x1` = 最左/最右泳道边界再外扩少许。
-4. 单面板、泳道清晰的图可跳过，让引擎全图自动提议（3–8 泳道自动尝试）。
-
-## 第 2 步：构造并执行命令
-
-| 用户说 | 追加参数 |
-| --- | --- |
-| "rolling ball 50" / 默认 ECL 图 | `--bg rolling:50` |
-| "扣背景用局部均值" | `--bg local` |
-| "泳道 1 是对照" / 不提 | `--control 1` / `--control 3` |
-| "是荧光/化学发光亮带" | `--signal light` |
-| 数出了 6 条泳道 | `--lanes 6`（限定后失败会如实报错，建议同时给 strip） |
+- 优先使用原始 PNG/TIFF（8/16 位）。JPEG 转格式不能恢复丢失的信息，不应声称转换后适合无损定量。
+  Prefer original PNG/TIFF (8/16-bit). Converting JPEG does not recover lost information.
+- 看图并确认目标面板、泳道数、亮/暗信号和对照泳道。使用原图尺寸，不把缩放预览坐标当原始像素。
+  Inspect the target panel, lane count, dark/light signal, and control lane. Use original pixel coordinates, not scaled-preview coordinates.
+- 多面板图使用 `--strip y,h,x0,x1`，排除 marker、文字和其他面板，同时保留背景余量。自动泳道提议需复核，失败时不得为获得结果而擅自改变预期泳道数。
+  For multiple panels use `--strip y,h,x0,x1`, excluding markers, labels, and other panels while retaining background margins. Review proposals; do not change the expected lane count merely to obtain a result.
+- 默认 `--bg local`、`--signal dark`、`--control 1`；按实际实验需求选择 `--bg rolling:50` 或 `--signal light`。背景方法不同，数值不能直接互换。
+  Defaults are `--bg local`, `--signal dark`, and `--control 1`. Select rolling-ball or light signal based on the experiment; different background methods are not interchangeable.
 
 ```sh
-wisplab wb "<图>" --strip "y,h,x0,x1" --lanes 6 --bg rolling:50
+wisplab wb /path/to/blot.png --strip "140,85,160,350" --lanes 6 --bg rolling:50 --signal dark --control 2
 ```
 
-⚠ 该引擎按导入策略**只收 TIFF/PNG**；用户给 JPG 时先 `sips -s format tiff 图.jpg --out 图.tif` 再喂，并向用户说明一句。
+## 结果 / Results
 
-## 第 3 步：结果呈现（不要倒 JSON）
+读取 `images[].lanes[]` 的 `net`、`ratio`、框坐标和 `warnings`，同时检查逐图 `error`。`ratio` 是该泳道净信号除以指定对照泳道净信号；对照净信号为正时，其自身比值为 1。不能把它称为已完成目标蛋白/上样内参双重归一化的表达量。
+Read `net`, `ratio`, region coordinates, and `warnings` in `images[].lanes[]`, plus per-image `error`. The ratio divides by the specified control lane's net signal; a positive control has a ratio of 1 to itself. This is not automatic target/loading-control normalization across images.
 
-读输出 JSON 的 `images[0].lanes[]`，给用户这样的表：
+报告饱和、非正净信号和边界问题；保留 `null`，不要改写为 0。跨膜比较需要额外实验设计和内参处理。需要手工 ROI、叠加图或报告时使用上游界面。
+Report saturation, nonpositive signal, and boundary warnings. Preserve `null` rather than replacing it with zero. Cross-membrane comparisons need additional design and normalization. Use the upstream GUI for manual ROIs, overlays, or reports.
 
-| 泳道 | 净信号 net | 相对对照 |
-| --- | --- | --- |
-| 1（对照） | 173,214 | 1.000 |
-| 2 | 2,712 | 0.016 |
+## 复现 / Reproducibility
 
-- `net` = 扣背景后的条带信号总量（dark 图：面积×背景均值 − 条带和）；`ratio` = net ÷ 对照泳道 net。
-- **warnings 必须翻译**：`CLIPPED_PIXELS`＝条带里有饱和像素（定量偏低）；`NON_POSITIVE_NET`＝该泳道无有效信号（检查条带框是否框错/泳道是空孔）；`BAND_TOUCHES_EDGE`＝条带框贴边。
-- 提醒一句：比值只有相对意义，跨膜比较需各自内参。
+保存输入、参数和 `doctor` 返回的引擎修订。历史 ImageJ parity 只适用于记录中的数据、参数和版本，不代表所有图像或整条流程无条件一致。`grade wb` 需要另行安装相邻的 `wisplab-benchmark` 及材料。
+Record inputs, parameters, and engine revisions from `doctor`. Historical ImageJ parity applies to the recorded data, parameters, and versions, not unconditionally to every image or workflow. `grade wb` requires the separate adjacent `wisplab-benchmark` and materials.
 
-## 参数语义（AI 自查用）
-
-`--strip y,h,x0,x1`：h 要含条带两侧背景余量；x 范围若含梯带/文字列，列剖面会混入干扰导致提议失败——报错"泳道提议失败"时先收窄 x 范围重试，再考虑降泳道数。`--bg rolling:半径` 与 ImageJ Subtract Background 像素级一致；`--bg local` 用背景矩形均值，两者数值不可互比。
-
-## 兜底与验证
-
-- CLI 不可用：直接 tsx 引擎（blot-workbench 仓库 AGENTS.md 有完整配方与禁忌）。
-- 用户要求验证数字：`wisplab grade wb <提交.json>`（期望值基准，通过线 net ≤1%）；rolling ball 对 ImageJ 的像素级 parity 记录在仓库 `docs/validation-real-images.md`。
-- 厂商图（CST/Proteintech 等）仅本机使用，结果数字可外发，图片与叠加图不外发。
+计算本地运行，但 AI 客户端可能向模型服务发送结果或附件；不得声称数据必然不离开电脑。
+Computation is local, but the AI client may send results or attachments to its model provider; do not promise that data never leaves the computer.
