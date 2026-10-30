@@ -18,3 +18,51 @@ jobs:
           package-manager-cache: false
       - run: npm run check
       - run: npm test
+  integration:
+    name: Pinned real engines
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Read verified engine revisions
+        id: engines
+        run: node -e 'const fs=require("node:fs");const lock=JSON.parse(fs.readFileSync("engines.lock.json"));fs.appendFileSync(process.env.GITHUB_OUTPUT,Object.entries(lock.engines).map(([key,value])=>key+"="+value.revision).join("\n")+"\n")'
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Gaoyuan-0423/blot-workbench
+          ref: ${{ steps.engines.outputs.wb }}
+          path: .engines/wb
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Gaoyuan-0423/pathology-workbench
+          ref: ${{ steps.engines.outputs.ihc }}
+          path: .engines/ihc
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Gaoyuan-0423/pcr-workbench
+          ref: ${{ steps.engines.outputs.pcr }}
+          path: .engines/pcr
+          persist-credentials: false
+      - run: npm ci --no-audit --no-fund
+        working-directory: .engines/wb
+      - run: npm ci --no-audit --no-fund
+        working-directory: .engines/pcr
+      - run: npm ci --no-audit --no-fund
+        working-directory: .engines/ihc
+      - run: npx --no-install playwright install --with-deps chromium
+        working-directory: .engines/ihc
+      - run: node scripts/configure-integration.mjs
+      - run: node cli.mjs doctor
+        env:
+          WISPLAB_CONFIG: .integration/config.json
+      - run: npm run test:integration
+        env:
+          WISPLAB_CONFIG: .integration/config.json

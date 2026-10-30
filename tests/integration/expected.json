@@ -1,0 +1,5 @@
+{
+  "rolling8": [24000, 12000],
+  "controlThreshold": 90,
+  "note": "Fixed regression baselines recorded on engines.lock.json revisions. Local WB and qPCR expectations are analytical in the test. Histology counts/thresholds are engine regressions, not biological ground truth."
+}

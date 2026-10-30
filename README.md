@@ -114,3 +114,5 @@ wisplab doctor > environment.json
 质控参数与排除规则 / QC and exclusion policy: [说明 / Guide](docs/qpcr-qc.md).
 
 分析追溯 / Analysis provenance: [格式与边界 / Format and limits](docs/provenance.md).
+
+真实引擎回归 / Real-engine regression: [安装、固定版本与合成数据 / Setup, pinned revisions and fixtures](tests/integration/README.md).
