@@ -7,3 +7,6 @@ wisplab.config.json
 grade-*.json
 # 系统
 .DS_Store
+# Downloaded pinned engines and generated integration configuration
+.engines/
+.integration/

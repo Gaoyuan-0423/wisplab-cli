@@ -1,5 +1,9 @@
 # Changelog / 更新记录
 
+## 0.4.1 — 2026-10-30
+
+- 固定引擎版本，新增自有合成 WB/qPCR/IHC/IF 数值回归、真实 CLI/MCP 与 CI。 / Pin verified engines and run original synthetic numerical fixtures through real engines, CLI/MCP and CI.
+
 ## 0.4.0 — 2026-10-30
 
 - WB/qPCR/IHC/IF 自动记录输入 SHA-256、有效参数、代码修订/内容摘要、运行环境和耗时；运行前后检查变化，失败时保留记录。 / Add versioned provenance with input hashes, parameters, code fingerprints, runtime and timings; retain it on analysis failure.

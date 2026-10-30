@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "verifiedOn": "2026-10-30",
+  "engines": {
+    "wb": { "repository": "Gaoyuan-0423/blot-workbench", "revision": "fd867d89fab3602ad24a2d5cb973e54577595b4e" },
+    "ihc": { "repository": "Gaoyuan-0423/pathology-workbench", "revision": "bb9c45c0fc81fe7ea0c449d209e9d63e6eb66a2e" },
+    "pcr": { "repository": "Gaoyuan-0423/pcr-workbench", "revision": "22afd2a1f3a7628acd8cc1c21e112208b898c29f" }
+  }
+}
