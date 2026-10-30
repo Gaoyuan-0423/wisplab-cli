@@ -189,7 +189,10 @@ test('stdio --config reaches the shared engine dispatcher instead of environment
   assert.equal(result.status, 0, result.stderr);
   const response = JSON.parse(result.stdout);
   assert.equal(response.result.isError, false, response.result.content[0].text);
-  assert.deepEqual(JSON.parse(response.result.content[0].text), { configuredEngine: true });
+  const resultData = JSON.parse(response.result.content[0].text);
+  assert.equal(resultData.configuredEngine, true);
+  assert.equal(resultData.provenance.analysis, "wb");
+  assert.equal(resultData.provenance.inputs[0].before.sha256.length, 64);
 });
 
 test('stdio drains asynchronous calls at EOF and processes both requests in order', (t) => {

@@ -122,6 +122,7 @@ try {
     }
   }
 } catch (err) {
+  if (err.provenance) console.log(JSON.stringify({ error: err.message, provenance: err.provenance }, null, 2));
   console.error(`wisplab: ${err.message}`);
   process.exitCode = 1;
 }

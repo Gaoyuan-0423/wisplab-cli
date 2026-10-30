@@ -112,3 +112,5 @@ wisplab doctor > environment.json
 问题与变更通过 [Issues](https://github.com/Gaoyuan-0423/wisplab-cli/issues) 和 [Pull requests](https://github.com/Gaoyuan-0423/wisplab-cli/pulls) 记录。许可证见 [LICENSE](LICENSE)。
 
 质控参数与排除规则 / QC and exclusion policy: [说明 / Guide](docs/qpcr-qc.md).
+
+分析追溯 / Analysis provenance: [格式与边界 / Format and limits](docs/provenance.md).

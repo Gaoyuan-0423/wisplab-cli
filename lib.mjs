@@ -6,6 +6,7 @@ import { dirname, join, resolve } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+import { trackAnalysisSync, trackAnalysis } from "./provenance.mjs";
 import { normalizePcrOptions } from "./pcr-options.mjs";
 
 export const CLI_DIR = dirname(fileURLToPath(import.meta.url));
@@ -85,12 +86,13 @@ export function runWb({ files, lanes = null, strip = null, bg = "local", radius 
   if (!["local", "rolling"].includes(bg)) throw new Error("bg: local | rolling");
   if (!["dark", "light"].includes(signal)) throw new Error("signal: dark | light");
   if (strip !== null && (typeof strip !== "string" || strip.split(",").length !== 4 || strip.split(",").some((v) => !v.trim() || !Number.isInteger(Number(v))))) throw new Error("strip: y,h,x0,x1 (integer pixels)");
-  return runRunner(repo("wb"), "wb-run.ts", {
-    files: files.map((f) => resolve(f)),
-    lanes, strip,
-    bg: bg === "rolling" ? { kind: "rolling-ball", radius: Number(radius) } : { kind: "local" },
-    signal, controlLane: Number(controlLane),
-  });
+  const parameters = { lanes, strip, bg, radius, signal, controlLane };
+  const engineDir = repo("wb");
+  return trackAnalysisSync({ analysis: "wb", engineDir, bridgeDir: CLI_DIR, parameters, inputs: files.map(path => ({path})) },
+    () => runRunner(engineDir, "wb-run.ts", {
+      files: files.map(f => resolve(f)), lanes, strip,
+      bg: bg === "rolling" ? {kind: "rolling-ball", radius} : {kind: "local"}, signal, controlLane,
+    }));
 }
 
 export function runPcr({ files, refGenes = [], controlSamples = [], efficiencies = {}, qc = {}, qcMode = "report", excludeRows = [] }) {
@@ -103,11 +105,10 @@ export function runPcr({ files, refGenes = [], controlSamples = [], efficiencies
     if (!gene.trim() || !Number.isFinite(value) || value <= 0 || value > 200) throw new Error("efficiencies: percentages must be > 0 and <= 200");
   }
   if (excludeRows.length && files.length !== 1) throw new Error("Manual row exclusion requires exactly one input file");
-  return runRunner(repo("pcr"), "pcr-run.ts", {
-    files: files.map((f) => resolve(f)),
-    refGenes, controlSamples, efficiencies,
-    ...normalizePcrOptions({ qc, qcMode, excludeRows }),
-  });
+  const parameters = { refGenes, controlSamples, efficiencies, ...normalizePcrOptions({ qc, qcMode, excludeRows }) };
+  const engineDir = repo("pcr");
+  return trackAnalysisSync({ analysis: "pcr", engineDir, bridgeDir: CLI_DIR, parameters, inputs: files.map(path => ({path})) },
+    () => runRunner(engineDir, "pcr-run.ts", { files: files.map(f => resolve(f)), ...parameters }));
 }
 
 export function runVerifyPcr(dir) {
@@ -122,6 +123,17 @@ export function runVerifyPcr(dir) {
 }
 
 export async function runIhc({ files, coloc = false, profile = "h_dab", controlTif = null }) {
+  validateFiles(files);
+  if (!["h_dab", "h_eosin", "masson", "if_coloc"].includes(profile)) throw new Error("Unsupported stain profile");
+  if (controlTif && (coloc || profile !== "h_dab")) throw new Error("对照片标定仅支持 H-DAB / Control calibration supports H-DAB only");
+  const parameters = { coloc, profile: coloc ? "if_coloc" : profile, controlTif: controlTif ? "input-with-role-control" : null, devPort: config().ihc.devPort };
+  const inputs = files.map(path => ({path}));
+  if (controlTif) inputs.push({path: controlTif, role: "control"});
+  return trackAnalysis({ analysis: coloc ? "if" : "ihc", engineDir: repo("ihc"), bridgeDir: CLI_DIR, parameters, inputs },
+    () => runIhcEngine({files, coloc, profile, controlTif}));
+}
+
+async function runIhcEngine({ files, coloc, profile, controlTif }) {
   validateFiles(files);
   if (!["h_dab", "h_eosin", "masson", "if_coloc"].includes(profile)) throw new Error("Unsupported stain profile");
   if (controlTif && (coloc || profile !== "h_dab")) throw new Error("对照片标定仅支持 H-DAB / Control calibration supports H-DAB only");
@@ -198,7 +210,7 @@ export async function runIhc({ files, coloc = false, profile = "h_dab", controlT
         const source = { sourceWidth: dec.sourceWidth, sourceHeight: dec.sourceHeight, workingScale: dec.workingScale, sourceType: dec.sourceType, bitsPerSample: dec.bitsPerSample, note: dec.note ?? null };
         if (coloc) {
           const r = analyzeColocImage(pixels, JSON.parse(JSON.stringify(DEFAULT_COLOC)));
-          return { ...source, coloc: r.coloc, overall: r.overall, warnings: r.warnings, width: pixels.width, height: pixels.height };
+          return { ...source, settings: { coloc: DEFAULT_COLOC }, coloc: r.coloc, overall: r.overall, warnings: r.warnings, width: pixels.width, height: pixels.height };
         }
         const threshold = controlThreshold !== null && controlThreshold !== undefined
           ? { ...JSON.parse(JSON.stringify(DEFAULT_THRESHOLD)), mode: "control", controlThreshold, controlImageName: controlName }
@@ -209,7 +221,7 @@ export async function runIhc({ files, coloc = false, profile = "h_dab", controlT
           calibration: { mpp: null }, stainOverride: null,
         });
         return {
-          ...source, overall: r.overall, thresholdUsed: r.thresholdUsed, backgroundLevel: r.backgroundLevel,
+          ...source, settings: { profile, threshold, segmentation: DEFAULT_SEGMENTATION, calibration: { mpp: null } }, overall: r.overall, thresholdUsed: r.thresholdUsed, backgroundLevel: r.backgroundLevel,
           warnings: r.warnings, qc: r.qc, width: pixels.width, height: pixels.height,
         };
       }, { b64, name, coloc, profile, controlThreshold, controlName });
