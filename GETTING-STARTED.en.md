@@ -134,3 +134,5 @@ To remove the global link, run `npm unlink -g wisplab-cli`, then remove this too
 [Capabilities and limits](README.en.md) · [Issues](https://github.com/Gaoyuan-0423/wisplab-cli/issues) · [Pull requests](https://github.com/Gaoyuan-0423/wisplab-cli/pulls)
 
 质控参数与排除规则 / QC and exclusion policy: [说明 / Guide](docs/qpcr-qc.md).
+
+单个内参即可进行 qPCR 分析（例如 `--ref GAPDH`）；多个内参为可选功能。 / One reference gene is sufficient (for example `--ref GAPDH`); multiple reference genes are optional.

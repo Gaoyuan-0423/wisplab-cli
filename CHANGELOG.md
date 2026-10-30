@@ -1,5 +1,9 @@
 # Changelog / 更新记录
 
+## 0.5.0 — 2026-10-30
+
+- 显式生物学重复分组，技术孔先聚合，Welch/Holm 与追溯；单内参支持及回归。 / Explicit biological groups, well aggregation, Welch/Holm and provenance; single-reference support.
+
 ## 0.4.1 — 2026-10-30
 
 - 固定引擎版本，新增自有合成 WB/qPCR/IHC/IF 数值回归、真实 CLI/MCP 与 CI。 / Pin verified engines and run original synthetic numerical fixtures through real engines, CLI/MCP and CI.

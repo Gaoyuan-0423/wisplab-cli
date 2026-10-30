@@ -15,9 +15,11 @@ const HELP = `wisplab — WispLab 三引擎无头定量（与 MCP server 共用�
                        [--signal dark|light] [--control 泳道号]
   wisplab ihc <图...>  [--profile h_dab|h_eosin|masson] [--control-tif 对照片]
   wisplab if  <图...>                                  IF 双通道共定位
-  wisplab pcr <表...>  [--ref G1,G2] [--control C1,C2] [--eff "T=92;GAPDH=99"]
+  wisplab pcr <表...>  [--ref GAPDH] [--control C1,C2] [--eff "T=92;GAPDH=99"]
                        [--min-cq N] [--max-cq N] [--abs-dev N] [--z-score N] [--rep-sd N]
                        [--qc-mode report|exclude] [--exclude-rows 1,2]
+                       [--groups '{"C1":"Control","T1":"Treatment"}' --control-group Control]
+                       单个内参即可；多个内参可选 / One reference gene is sufficient; multiple are optional
   wisplab grade <模块> <提交.json>   AI 分析评分（模块：pcr|ihc|wb|synthetic16）
   wisplab verify-pcr [验证目录]
   wisplab doctor                 环境/引擎修订检查 / Check engine readiness
@@ -31,7 +33,7 @@ function emitAnalysis(result) {
 }
 
 try {
-  const valueFlags = new Set(["config", "lanes", "strip", "bg", "signal", "control", "control-tif", "profile", "ref", "eff", "min-cq", "max-cq", "abs-dev", "z-score", "rep-sd", "qc-mode", "exclude-rows"]);
+  const valueFlags = new Set(["config", "lanes", "strip", "bg", "signal", "control", "control-tif", "profile", "ref", "eff", "min-cq", "max-cq", "abs-dev", "z-score", "rep-sd", "qc-mode", "exclude-rows", "groups", "control-group"]);
   const opts = {};
   const positional = [];
   let literal = false;
@@ -57,7 +59,7 @@ try {
   } else {
     const allowed = {
       wb: ["lanes", "strip", "bg", "signal", "control"],
-      pcr: ["ref", "control", "eff", "min-cq", "max-cq", "abs-dev", "z-score", "rep-sd", "qc-mode", "exclude-rows"], ihc: ["profile", "control-tif", "coloc"], if: [],
+      pcr: ["ref", "control", "eff", "min-cq", "max-cq", "abs-dev", "z-score", "rep-sd", "qc-mode", "exclude-rows", "groups", "control-group"], ihc: ["profile", "control-tif", "coloc"], if: [],
       grade: [], "verify-pcr": [], doctor: [],
     };
     if (!allowed[cmd]) throw new Error(`未知命令 / Unknown command: ${cmd}`);
@@ -88,7 +90,9 @@ try {
         if (parts.length !== 2 || !parts[0].trim() || !parts[1].trim()) throw new Error("--eff: expected GENE=92;REF=99");
         eff[parts[0].trim()] = Number(parts[1]);
       }
+      if (Boolean(opts.groups) !== Boolean(opts["control-group"])) throw new Error("--groups and --control-group must be supplied together");
       emitAnalysis(runPcr({
+        biologicalDesign: opts.groups ? { samples: JSON.parse(opts.groups), controlGroup: opts["control-group"] } : null,
         files,
         refGenes: String(opts.ref ?? "").split(",").map((v) => v.trim()).filter(Boolean),
         controlSamples: String(opts.control ?? "").split(",").map((v) => v.trim()).filter(Boolean),

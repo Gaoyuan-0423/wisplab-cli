@@ -81,7 +81,7 @@ function pcrFixture(t) {
     `,
     'core/sniff': `export function sniff() { return { headerRow: 0, mapping: { sample: 0, target: 1, cq: 2 }, format: 'test' }; }`,
     'core/qc': `export function computeQcFlags() { return {}; }`,
-    'core/stats': `export function sd() { return 0; }`,
+    'core/stats': `export function sd() { return 0; } export function mean() { return 0; } export function welchTTest() { return {}; }`,
     'core/analysis': `
       export function isNtcRow() { return false; }
       export function isStandardRow() { return false; }

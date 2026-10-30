@@ -10,8 +10,10 @@ import { sniff } from "<PCR>/src/core/sniff.ts";
 import { readInputFile, sheetToRawMatrix } from "<PCR>/src/core/parse.ts";
 
 import { computeQcFlags } from "<PCR>/src/core/qc.ts";
-import { sd } from "<PCR>/src/core/stats.ts";
+import { mean, sd, welchTTest } from "<PCR>/src/core/stats.ts";
 import { preparePcrRows } from "<CLI>/pcr-qc.mjs";
+
+import { analyzeBiologicalGroups } from "<CLI>/pcr-groups.mjs";
 
 const payload = JSON.parse(process.argv[2]);
 const images = [];
@@ -38,6 +40,7 @@ for (const path of payload.files) {
       efficiencies: Object.keys(efficiencies).length ? efficiencies : undefined,
       qc: prepared.settings,
     });
+    const biologicalGroups = analyzeBiologicalGroups(prepared.rows, { ...payload, efficiencies }, { mean, sd, welchTTest, isNtcRow, isStandardRow });
     images.push({
       file: name,
       inputKind: input.kind,
@@ -48,6 +51,7 @@ for (const path of payload.files) {
       effMode: out.effMode,
       efficiencies: out.efficiencies,
       qcReport: prepared.report,
+      biologicalGroups,
       ...(out.results.length === 0 ? { error: "No relative-expression results; inspect reference/control names and QC exclusions / 无相对表达结果，请检查内参、对照及排除行" } : {}),
       warnings: [
         prepared.report.replication.note,

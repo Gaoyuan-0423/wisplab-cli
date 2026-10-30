@@ -58,3 +58,5 @@ Record inputs, parameters, and engine revisions. `verify-pcr /path/to/validation
 Computation is local; the AI client may send tool results or attachments to its model provider.
 
 质控参数与排除规则 / QC and exclusion policy: [说明 / Guide](../../docs/qpcr-qc.md).
+
+单个内参即可进行 qPCR 分析（例如 `--ref GAPDH`）；多个内参为可选功能。 / One reference gene is sufficient (for example `--ref GAPDH`); multiple reference genes are optional.
