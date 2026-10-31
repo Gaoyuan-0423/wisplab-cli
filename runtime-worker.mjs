@@ -14,6 +14,7 @@ process.once('message', async ({ operation, args, configPath, runtime }) => {
       result = await lib.runIhcEngine({ ...args, onEvent: event => process.send({ type: 'event', event }) });
     } else if (operation === 'wb') result = lib.runWb({ ...args, runtime });
     else if (operation === 'pcr') result = lib.runPcr({ ...args, runtime });
+    else if (operation === 'pcr-preview') result = lib.previewPcr({ ...args, runtime });
     else if (operation === 'verify-pcr') result = lib.runVerifyPcr(args.dir);
     else throw new Error(`Unknown analysis operation: ${operation}`);
     await send({ type: 'result', result });

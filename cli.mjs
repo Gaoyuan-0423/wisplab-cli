@@ -25,10 +25,14 @@ const HELP = `wisplab — WispLab 三引擎无头定量（与 MCP server 共用�
   wisplab ihc-nuclei-validate <result.json> <reference.json> --match-radius PX
   wisplab if  <图...> [--channels R,G] [--review-dir 已存在目录] IF 双通道共定位
   wisplab pcr <表...>  [--ref GAPDH] [--control C1,C2] [--eff "T=92;GAPDH=99"]
+                       [--sheet 名称] [--header-row N] [--columns '{"sample":1,"target":2,"cq":3}']
                        [--min-cq N] [--max-cq N] [--abs-dev N] [--z-score N] [--rep-sd N]
                        [--qc-mode report|exclude] [--exclude-rows 1,2]
                        [--groups '{"C1":"Control","T1":"Treatment"}' --control-group Control]
+                       [--paired --pair-ids '{"C1":"P1","T1":"P1"}']
                        单个内参即可；多个内参可选 / One reference gene is sufficient; multiple are optional
+  wisplab pcr-preview <表...> [--sheet 名称] [--header-row N] [--columns JSON]
+                       只解析与检查来源，不做表达量分析 / Parse-only preview with source rows
   wisplab grade <模块> <提交.json>   AI 分析评分（模块：pcr|ihc|wb|synthetic16）
   wisplab verify-pcr [验证目录]
   wisplab doctor [--strict]      环境/引擎修订检查 / Check engine readiness
@@ -43,7 +47,7 @@ function emitAnalysis(result) {
 }
 
 try {
-  const valueFlags = new Set(["timeout-ms", "file-timeout-ms", "config", "lanes", "strip", "bg", "signal", "control", "control-tif", "profile", "ref", "eff", "min-cq", "max-cq", "abs-dev", "z-score", "rep-sd", "qc-mode", "exclude-rows", "groups", "control-group", "images-root", "output-dir", "match-radius", "roi-manifest", "channels", "mpp", "review-dir"]);
+  const valueFlags = new Set(["timeout-ms", "file-timeout-ms", "config", "lanes", "strip", "bg", "signal", "control", "control-tif", "profile", "ref", "eff", "min-cq", "max-cq", "abs-dev", "z-score", "rep-sd", "qc-mode", "exclude-rows", "groups", "control-group", "sheet", "header-row", "columns", "pair-ids", "images-root", "output-dir", "match-radius", "roi-manifest", "channels", "mpp", "review-dir"]);
   const opts = {};
   const positional = [];
   let literal = false;
@@ -52,7 +56,7 @@ try {
     if (a === "--" && !literal) { literal = true; continue; }
     if (!literal && a.startsWith("-")) {
       const flag = a === "-h" ? "help" : a.slice(2);
-      if (["help", "version", "coloc", "strict", "nuclei"].includes(flag)) opts[flag] = true;
+      if (["help", "version", "coloc", "strict", "nuclei", "paired"].includes(flag)) opts[flag] = true;
       else if (a.startsWith("--") && valueFlags.has(flag)) {
         const value = argv[++i];
         if (!value || value.startsWith("--")) throw new Error(`${a}: 缺少参数 / missing value`);
@@ -69,13 +73,15 @@ try {
   } else {
     const allowed = {
       wb: ["timeout-ms", "lanes", "strip", "bg", "signal", "control"],
-      pcr: ["timeout-ms", "ref", "control", "eff", "min-cq", "max-cq", "abs-dev", "z-score", "rep-sd", "qc-mode", "exclude-rows", "groups", "control-group"], ihc: ["timeout-ms", "file-timeout-ms", "profile", "control-tif", "coloc", "roi-manifest", "channels", "mpp", "nuclei", "review-dir"], if: ["timeout-ms", "file-timeout-ms", "channels", "review-dir"],
+      pcr: ["timeout-ms", "ref", "control", "eff", "min-cq", "max-cq", "abs-dev", "z-score", "rep-sd", "qc-mode", "exclude-rows", "groups", "control-group", "sheet", "header-row", "columns", "paired", "pair-ids"],
+      "pcr-preview": ["timeout-ms", "sheet", "header-row", "columns"],
+      ihc: ["timeout-ms", "file-timeout-ms", "profile", "control-tif", "coloc", "roi-manifest", "channels", "mpp", "nuclei", "review-dir"], if: ["timeout-ms", "file-timeout-ms", "channels", "review-dir"],
       grade: [], "verify-pcr": [], doctor: ["strict"], "ihc-validate": [], "ihc-annotation-pack": ["images-root", "output-dir"], "ihc-nuclei-validate": ["match-radius"],
     };
     if (!allowed[cmd]) throw new Error(`未知命令 / Unknown command: ${cmd}`);
     for (const key of Object.keys(opts)) if (key !== "config" && !allowed[cmd].includes(key)) throw new Error(`--${key}: unsupported for ${cmd}`);
     if (!["ihc-validate", "ihc-annotation-pack", "ihc-nuclei-validate"].includes(cmd)) config(opts.config);
-    const runtime = ["wb", "pcr", "ihc", "if"].includes(cmd) ? normalizeRuntime({
+    const runtime = ["wb", "pcr", "pcr-preview", "ihc", "if"].includes(cmd) ? normalizeRuntime({
       ...(opts["timeout-ms"] !== undefined ? { timeoutMs: Number(opts["timeout-ms"]) } : {}),
       ...(opts["file-timeout-ms"] !== undefined ? { fileTimeoutMs: Number(opts["file-timeout-ms"]) } : {}),
       onProgress: ({ progress, total, message }) => console.error(`wisplab: ${progress}/${total ?? "?"} ${message}`),
@@ -120,6 +126,13 @@ try {
         signal: String(opts.signal ?? "dark"),
         controlLane: Number(opts.control ?? "1"),
       }, config(), runtime));
+    } else if (cmd === "pcr-preview") {
+      if (!files.length) throw new Error("pcr-preview：至少一个数据表 / At least one data file is required");
+      emitAnalysis(await runAnalysisJob("pcr-preview", { files, importOptions: {
+        ...(opts.sheet === undefined ? {} : {sheet:opts.sheet}),
+        ...(opts["header-row"] === undefined ? {} : {headerRow:Number(opts["header-row"])}),
+        ...(opts.columns === undefined ? {} : {columns:JSON.parse(opts.columns)}),
+      } }, config(), runtime));
     } else if (cmd === "pcr") {
       if (!files.length) throw new Error("pcr：至少一个数据表");
       const eff = {};
@@ -129,8 +142,16 @@ try {
         eff[parts[0].trim()] = Number(parts[1]);
       }
       if (Boolean(opts.groups) !== Boolean(opts["control-group"])) throw new Error("--groups and --control-group must be supplied together");
+      if ((opts.paired || opts["pair-ids"] !== undefined) && !opts.groups) throw new Error("--paired/--pair-ids require --groups and --control-group");
+      if (Boolean(opts.paired) !== (opts["pair-ids"] !== undefined)) throw new Error("--paired and --pair-ids must be supplied together");
       emitAnalysis(await runAnalysisJob("pcr", {
-        biologicalDesign: opts.groups ? { samples: JSON.parse(opts.groups), controlGroup: opts["control-group"] } : null,
+        biologicalDesign: opts.groups ? { samples: JSON.parse(opts.groups), controlGroup: opts["control-group"],
+          ...(opts.paired ? {paired:true,pairIds:JSON.parse(opts["pair-ids"])} : {}) } : null,
+        importOptions: {
+          ...(opts.sheet === undefined ? {} : {sheet:opts.sheet}),
+          ...(opts["header-row"] === undefined ? {} : {headerRow:Number(opts["header-row"])}),
+          ...(opts.columns === undefined ? {} : {columns:JSON.parse(opts.columns)}),
+        },
         files,
         refGenes: String(opts.ref ?? "").split(",").map((v) => v.trim()).filter(Boolean),
         controlSamples: String(opts.control ?? "").split(",").map((v) => v.trim()).filter(Boolean),

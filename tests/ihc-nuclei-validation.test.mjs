@@ -33,3 +33,11 @@ test('reject malformed/ambiguous labels and dates; empty reviewed images have un
  const report=compareNucleiReference(result,reference,{radius:1});assert.equal(report.status,'compared');assert.equal(report.summaries.detection.f1,null);
  delete result.files[0].nuclei;assert.equal(compareNucleiReference(result,reference,{radius:1}).records[0].reason,'missing-nucleus-export');
 });
+test('independent H-score comparison is separate from binary nucleus positivity',()=>{
+ const {result,reference}=fixtures();reference.images[0].hScore=150;result.files[0].overall={hScore:120};
+ const report=compareNucleiReference(result,reference,{radius:1});
+ assert.deepEqual(report.records[0].hScore,{reference:150,observed:120,error:-30,absoluteError:30});
+ assert.equal(report.hScoreSummary.meanAbsoluteError,30);
+ delete result.files[0].overall;assert.equal(compareNucleiReference(result,reference,{radius:1}).records[0].reason,'unavailable-h-score');
+ reference.images[0].hScore=301;assert.throws(()=>compareNucleiReference(result,reference,{radius:1}),/H-score/);
+});

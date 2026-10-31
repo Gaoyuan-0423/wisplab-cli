@@ -31,6 +31,7 @@ function fixture(t) {
   const engine = {
     runWb: (a) => { calls.push(a); return { files: a.files }; },
     runPcr: (a) => { calls.push(a); return { files: a.files }; },
+    previewPcr: (a) => { calls.push(a); return { files: a.files }; },
     runIhc: async (a) => { await new Promise((r) => setTimeout(r, 15)); calls.push(a); return { coloc: a.coloc, value: 42 }; },
     runVerifyPcr: (dir) => { calls.push(dir); return { exitCode: 0, output: 'verified' }; },
   };
@@ -43,7 +44,7 @@ test('modern discovery advertises explicit versions and modern results', async (
   assert.deepEqual(result.supportedVersions, SUPPORTED_VERSIONS);
   assert.equal(result.resultType, 'complete');
   assert.equal(result._meta['io.modelcontextprotocol/serverInfo'].version, JSON.parse(readFileSync(join(root, 'package.json'))).version);
-  assert.equal((await handle(request('tools/list'))).result.tools.length, 5);
+  assert.equal((await handle(request('tools/list'))).result.tools.length, 6);
 });
 
 test('legacy negotiation never echoes an unsupported or modern version', async (t) => {
@@ -53,7 +54,7 @@ test('legacy negotiation never echoes an unsupported or modern version', async (
   }
   assert.equal((await handle(initialize('2024-11-05'))).result.protocolVersion, '2024-11-05');
   const listed = await handle({ jsonrpc: '2.0', id: 2, method: 'tools/list' });
-  assert.equal(listed.result.tools.length, 5);
+  assert.equal(listed.result.tools.length, 6);
   assert.equal(listed.result.resultType, undefined);
 });
 
@@ -200,6 +201,7 @@ test('stdio drains asynchronous calls at EOF and processes both requests in orde
   copyFileSync(join(root, 'mcp-server.mjs'), join(f.dir, 'mcp-server.mjs'));
   copyFileSync(join(root, 'runtime-controls.mjs'), join(f.dir, 'runtime-controls.mjs'));
   copyFileSync(join(root, 'image-review.mjs'), join(f.dir, 'image-review.mjs'));
+  for (const name of ['pcr-groups.mjs','pcr-inference.mjs','pcr-import.mjs']) copyFileSync(join(root,name),join(f.dir,name));
   writeFileSync(join(f.dir, 'package.json'), JSON.stringify({ version: 'test', type: 'module' }));
   writeFileSync(join(f.dir, 'lib.mjs'), `export function config() { return ${JSON.stringify(f.cfg)}; }
     export async function runIhc({ coloc }) {
@@ -236,6 +238,34 @@ test('MCP forwards explicit biological design and supports a single reference',a
  assert.deepEqual(f.calls[0].biologicalDesign,design);
  const bad=await handle(call('pcr_analyze',{files:[f.image],biologicalDesign:{...design,paired:true}}));
  assert.ok(bad.error || bad.result.isError);
+});
+
+test('MCP preview exposes exact import mapping without reference requirements and validates selectors',async t=>{
+ const f=fixture(t),handle=createMcpHandler(f);
+ const importOptions={sheet:'2',headerRow:3,columns:{sample:'Specimen',target:2,cq:3}};
+ const result=await handle(call('pcr_preview',{files:[f.image],importOptions,runtime:{timeoutMs:6000}}));
+ assert.equal(result.result.isError,false);assert.deepEqual(f.calls[0].importOptions,importOptions);
+ assert.equal(f.calls[0].refGenes,undefined);assert.equal(f.calls[0].runtime.timeoutMs,6000);
+ for(const options of [{sheet:2},{headerRow:0},{columns:{sample:1,target:2}},{columns:{sample:1,target:2,cq:0}},
+   {columns:{sample:1,target:2,cq:1.5}},{columns:{sample:1,target:2,cq:''}},{columns:{sample:1,target:2,cq:{index:3}}}]) {
+   assert.equal((await handle(call('pcr_preview',{files:[f.image],importOptions:options}))).result.isError,true);
+ }
+ assert.equal((await handle(call('pcr_preview',{files:[f.image],refGenes:['R']}))).result.isError,true);
+ assert.equal(f.calls.length,1);
+});
+
+test('MCP paired biological design and import options reach analysis and invalid pairing never starts',async t=>{
+ const f=fixture(t),handle=createMcpHandler(f);
+ const biologicalDesign={samples:{C1:'C',C2:'C',S1:'S',S2:'S'},controlGroup:'C',paired:true,pairIds:{C1:'P1',S1:'P1',C2:'P2',S2:'P2'}};
+ const importOptions={sheet:'Results',columns:{sample:1,target:2,cq:3}};
+ const result=await handle(call('pcr_analyze',{files:[f.image],refGenes:['GAPDH'],biologicalDesign,importOptions}));
+ assert.equal(result.result.isError,false);assert.deepEqual(f.calls[0].biologicalDesign,biologicalDesign);
+ assert.deepEqual(f.calls[0].importOptions,importOptions);
+ for(const design of [{...biologicalDesign,pairIds:{C1:'P1',S1:'P1'}},{...biologicalDesign,paired:false},
+   {...biologicalDesign,pairIds:{...biologicalDesign.pairIds,S2:'P3'}}]) {
+   assert.equal((await handle(call('pcr_analyze',{files:[f.image],biologicalDesign:design}))).result.isError,true);
+ }
+ assert.equal(f.calls.length,1);
 });
 
 test('legacy progress uses only requested tokens; queued cancellation never starts the job', async t => {

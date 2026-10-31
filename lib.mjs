@@ -11,6 +11,7 @@ import { trackAnalysisSync, trackAnalysis } from "./provenance.mjs";
 import { readEngineLock, checkEngineRevision } from "./engine-lock.mjs";
 import { normalizeBiologicalDesign } from "./pcr-groups.mjs";
 import { normalizePcrOptions } from "./pcr-options.mjs";
+import { normalizePcrImportOptions } from "./pcr-import.mjs";
 import { normalizeImageOptions, saveImageReview, sha256 } from "./image-review.mjs";
 
 export const CLI_DIR = dirname(fileURLToPath(import.meta.url));
@@ -99,7 +100,7 @@ export function runWb({ files, lanes = null, strip = null, bg = "local", radius 
     }, normalizeRuntime(runtime).timeoutMs));
 }
 
-export function runPcr({ files, refGenes = [], controlSamples = [], efficiencies = {}, qc = {}, qcMode = "report", excludeRows = [], biologicalDesign = null, runtime = {} }) {
+export function runPcr({ files, refGenes = [], controlSamples = [], efficiencies = {}, qc = {}, qcMode = "report", excludeRows = [], biologicalDesign = null, importOptions = {}, runtime = {} }) {
   validateFiles(files);
   for (const [name, values] of Object.entries({ refGenes, controlSamples })) {
     if (!Array.isArray(values) || values.some((v) => typeof v !== "string" || !v.trim())) throw new Error(`${name}: expected nonempty gene/sample names`);
@@ -117,9 +118,17 @@ export function runPcr({ files, refGenes = [], controlSamples = [], efficiencies
       throw new Error("controlSamples conflicts with biological controlGroup");
     controlSamples = controls;
   }
-  const parameters = { refGenes, controlSamples, efficiencies, biologicalDesign, ...normalizePcrOptions({ qc, qcMode, excludeRows }) };
+  const parameters = { refGenes, controlSamples, efficiencies, biologicalDesign, importOptions: normalizePcrImportOptions(importOptions), ...normalizePcrOptions({ qc, qcMode, excludeRows }) };
   const engineDir = repo("pcr");
   return trackAnalysisSync({ analysis: "pcr", engineDir, bridgeDir: CLI_DIR, parameters, inputs: files.map(path => ({path})) },
+    () => runRunner(engineDir, "pcr-run.ts", { files: files.map(f => resolve(f)), ...parameters }, normalizeRuntime(runtime).timeoutMs));
+}
+
+export function previewPcr({ files, importOptions = {}, runtime = {} }) {
+  validateFiles(files);
+  const parameters = { mode: "preview", importOptions: normalizePcrImportOptions(importOptions) };
+  const engineDir = repo("pcr");
+  return trackAnalysisSync({ analysis: "pcr-preview", engineDir, bridgeDir: CLI_DIR, parameters, inputs: files.map(path => ({path})) },
     () => runRunner(engineDir, "pcr-run.ts", { files: files.map(f => resolve(f)), ...parameters }, normalizeRuntime(runtime).timeoutMs));
 }
 

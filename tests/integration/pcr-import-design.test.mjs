@@ -5,17 +5,25 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {pathToFileURL,fileURLToPath} from 'node:url';
 import {createRequire} from 'node:module';
-import {execFileSync} from 'node:child_process';
-import {loadConfig} from '../../lib.mjs';
+import {execFileSync,spawnSync} from 'node:child_process';
+import {loadConfig,config,previewPcr,runPcr} from '../../lib.mjs';
 
 const root=fileURLToPath(new URL('../..',import.meta.url));
 const close=(actual,expected,tolerance=1e-9)=>assert.ok(Number.isFinite(actual)&&Math.abs(actual-expected)<=tolerance,`${actual} != ${expected}`);
 
 test('pinned real PCR import and design runner', {timeout:60000},async t=>{
-  const engine=loadConfig().repos.pcr;
+  const cfg=loadConfig(),engine=cfg.repos.pcr;
   const lock=JSON.parse(readFileSync(new URL('../../engines.lock.json',import.meta.url)));
   assert.equal(execFileSync('git',['-C',engine,'rev-parse','HEAD'],{encoding:'utf8'}).trim(),lock.engines.pcr.revision);
   const dir=mkdtempSync(join(tmpdir(),'wisplab-pcr-import-'));t.after(()=>rmSync(dir,{recursive:true,force:true}));
+  const cfgPath=join(dir,'config.json');writeFileSync(cfgPath,JSON.stringify({...cfg,allowPaths:[dir]}));config(cfgPath);
+  const cli=args=>spawnSync(process.execPath,[join(root,'cli.mjs'),...args,'--config',cfgPath],{encoding:'utf8',maxBuffer:32*1024*1024});
+  const mcp=(name,args)=>{
+    const request={jsonrpc:'2.0',id:1,method:'tools/call',params:{name,arguments:args,_meta:{
+      'io.modelcontextprotocol/protocolVersion':'2026-07-28','io.modelcontextprotocol/clientCapabilities':{}}}};
+    const result=spawnSync(process.execPath,[join(root,'mcp-server.mjs'),'--config',cfgPath],{encoding:'utf8',input:JSON.stringify(request)+'\n',maxBuffer:32*1024*1024});
+    assert.equal(result.status,0,result.stderr);return JSON.parse(result.stdout).result;
+  };
   const source=readFileSync(join(root,'runners/pcr-run.ts'),'utf8').replaceAll('<PCR>',pathToFileURL(engine).href).replaceAll('<CLI>',pathToFileURL(root).href);
   writeFileSync(join(dir,'package.json'),'{"type":"module"}\n');
   const runner=join(dir,'pcr-run.ts');writeFileSync(runner,source);
@@ -51,6 +59,27 @@ test('pinned real PCR import and design runner', {timeout:60000},async t=>{
     assert.deepEqual(excluded.qcReport.excludedRowIds,[4]);
     assert.equal(excluded.importReport.rows.find(r=>r.analysisRowId===4).sourceRow,8);
   });
+  await t.test('shared API, CLI and MCP preview select the real requested Excel sheet and expose the same source rows',()=>{
+    const direct=previewPcr({files:[excel],importOptions});
+    assert.equal(direct.provenance.analysis,'pcr-preview');assert.equal(direct.provenance.parameters.mode,'preview');
+    assert.deepEqual(direct.provenance.parameters.importOptions,importOptions);
+    const cliResult=cli(['pcr-preview',excel,'--sheet','2','--header-row','3','--columns',JSON.stringify(importOptions.columns)]);
+    assert.equal(cliResult.status,0,cliResult.stderr);const viaCli=JSON.parse(cliResult.stdout);
+    const reply=mcp('pcr_preview',{files:[excel],importOptions});assert.equal(reply.isError,false);
+    const viaMcp=JSON.parse(reply.content[0].text);
+    for(const result of [direct,viaCli,viaMcp]) {
+      const file=result.files[0];assert.equal(file.error,undefined);assert.equal(file.sheet,'2');
+      assert.equal(file.primaryAnalysis,undefined);assert.equal(file.qcReport,undefined);assert.equal(file.importPreview.rows[4].sourceRow,8);
+      assert.deepEqual(file.importPreview,direct.files[0].importPreview);
+    }
+    const failed=cli(['pcr-preview',excel,'--sheet','1']);assert.equal(failed.status,1);
+    assert.match(JSON.parse(failed.stdout).files[0].error,/Worksheet not found/);
+    assert.equal(mcp('pcr_preview',{files:[excel],importOptions:{sheet:'1'}}).isError,true);
+    const analyzed=runPcr({files:[excel],importOptions,refGenes:['R'],controlSamples:['C']});
+    assert.equal(analyzed.files[0].sheet,'2');close(analyzed.files[0].results.find(r=>r.sample==='S').foldChange,4);
+    const analysisCli=cli(['pcr',excel,'--sheet','2','--header-row','3','--columns',JSON.stringify(importOptions.columns),'--ref','R','--control','C']);
+    assert.equal(analysisCli.status,0,analysisCli.stderr);close(JSON.parse(analysisCli.stdout).files[0].results.find(r=>r.sample==='S').foldChange,4);
+  });
   const csv=(name,logs)=>{
     const path=join(dir,name),data=['Sample,Target,Cq'];
     for(const [sample,value] of Object.entries(logs))data.push(`${sample},R,20`,`${sample},T,${20-value}`);
@@ -79,5 +108,22 @@ test('pinned real PCR import and design runner', {timeout:60000},async t=>{
     assert.equal(filtered.error,undefined);assert.equal(f.nPairs,3);assert.equal(f.log2FoldChange,2);
     assert.deepEqual(f.pairing.omittedPairs,[{pairId:'4',sample:'S4',controlSample:'C4',sampleReason:null,controlReason:'missing-reference'}]);
     assert.deepEqual(filtered.qcReport.excludedRowIds,[7]);
+  });
+  await t.test('real CLI and MCP paired analysis route complete pair ids, one reference and R-validated intervals',()=>{
+    const logs={C1:1,C2:3,C3:5,C4:9,S4:10,S2:5,S1:2,S3:8};
+    const samples=Object.fromEntries(Object.keys(logs).map(s=>[s,s[0]])),pairIds=Object.fromEntries(Object.keys(logs).map(s=>[s,s.slice(1)]));
+    const input=csv('paired-interfaces.csv',logs),biologicalDesign={samples,controlGroup:'C',paired:true,pairIds};
+    const direct=runPcr({files:[input],refGenes:['R'],biologicalDesign});
+    const cliResult=cli(['pcr',input,'--ref','R','--groups',JSON.stringify(samples),'--control-group','C','--paired','--pair-ids',JSON.stringify(pairIds)]);
+    assert.equal(cliResult.status,0,cliResult.stderr);
+    const reply=mcp('pcr_analyze',{files:[input],refGenes:['R'],biologicalDesign});assert.equal(reply.isError,false);
+    for(const result of [direct,JSON.parse(cliResult.stdout),JSON.parse(reply.content[0].text)]) {
+      const file=result.files[0],c=file.primaryAnalysis.comparisons[0];
+      assert.equal(file.primaryAnalysis.status,'success');assert.equal(c.inferenceMethod,'paired-t');assert.equal(c.nPairs,4);
+      assert.deepEqual(file.refGenesUsed,['R']);close(c.pValue,0.035352847002517);
+      close(c.log2FoldChangeCI95[0],0.22651981917118771);close(c.foldChangeCI95[1],9.6697606559101565);
+      assert.deepEqual(result.provenance.parameters.biologicalDesign,biologicalDesign);
+    }
+    assert.equal(mcp('pcr_analyze',{files:[input],biologicalDesign:{...biologicalDesign,pairIds:{C1:'1'}}}).isError,true);
   });
 });

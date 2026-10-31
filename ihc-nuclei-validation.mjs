@@ -1,4 +1,5 @@
 /** Independent point-reference review. Coordinates are pixel-centre indices. */
+const compareIds = (a,b) => a < b ? -1 : a > b ? 1 : 0;
 const HASH = /^[a-f0-9]{64}$/;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const nonempty = value => typeof value === 'string' && value.trim().length > 0;
@@ -36,8 +37,8 @@ function validatePoints(points, width, height, label) {
  * Class labels never influence matching. This is not a minimum-total-distance assignment. */
 export function matchNuclei(reference, predicted, radius) {
   if (!Number.isFinite(radius) || radius <= 0) throw new Error('Match radius must be positive source pixels');
-  const refs = [...reference].sort((a,b) => a.id.localeCompare(b.id));
-  const preds = [...predicted].sort((a,b) => a.id.localeCompare(b.id));
+  const refs = [...reference].sort((a,b) => compareIds(a.id,b.id));
+  const preds = [...predicted].sort((a,b) => compareIds(a.id,b.id));
   const grid = new Map();
   const key = (x,y) => `${x},${y}`;
   for (let j=0;j<preds.length;j++) {
@@ -53,7 +54,7 @@ export function matchNuclei(reference, predicted, radius) {
     }
     edgeCount+=found.length;
     if(edgeCount>2000000)throw new Error('Too many candidate matches; use smaller reviewed image tiles or a narrower matching radius');
-    return found.sort((a,b)=>a.distance-b.distance||preds[a.j].id.localeCompare(preds[b.j].id));
+    return found.sort((a,b)=>a.distance-b.distance||compareIds(preds[a.j].id,preds[b.j].id));
   });
   const refToPred=new Map(), predToRef=new Map();
   for(let start=0;start<refs.length;start++) {
@@ -88,6 +89,7 @@ export function compareNucleiReference(result, reference, {radius}={}) {
       !['h_dab','h_eosin','masson'].includes(ref.profile)||!['manual','independent-computation','synthetic'].includes(ref.sourceKind)||!['pending','complete'].includes(ref.reviewStatus))
       throw new Error('Invalid reference identity, coordinate space, review status or source');
     seen.add(ref.file);validatePoints(ref.points,ref.sourceWidth,ref.sourceHeight,ref.file);
+    if(ref.hScore!==undefined&&(!Number.isFinite(ref.hScore)||ref.hScore<0||ref.hScore>300))throw new Error('Reference H-score must be between 0 and 300');
     if(ref.reviewStatus==='pending'){records.push({file:ref.file,status:'pending-review',sourceKind:ref.sourceKind});continue;}
     if(!nonempty(ref.method)||!nonempty(ref.reviewer)||!validDate(ref.reviewedOn))throw new Error('Completed references require method, reviewer and valid review date');
     const files=result.files.filter(f=>f.file===ref.file),inputs=(result.provenance.inputs??[]).filter(i=>i.file===ref.file&&i.role==='input');
@@ -98,6 +100,7 @@ export function compareNucleiReference(result, reference, {radius}={}) {
     else if(actual.settings?.profile!==ref.profile||actual.sourceWidth!==ref.sourceWidth||actual.sourceHeight!==ref.sourceHeight)reason='image-scope-mismatch';
     else if(!actual.nuclei||actual.nuclei.coordinateSpace!=='working'||actual.nuclei.width!==actual.width||actual.nuclei.height!==actual.height||
       !Number.isSafeInteger(actual.width)||actual.width<1||!Number.isSafeInteger(actual.height)||actual.height<1)reason='missing-nucleus-export';
+    else if(ref.hScore!==undefined&&(!Number.isFinite(actual.overall?.hScore)||actual.overall.hScore<0||actual.overall.hScore>300))reason='unavailable-h-score';
     if(reason){records.push({file:ref.file,status:'incomplete',reason});continue;}
     validatePoints(actual.nuclei.items,actual.width,actual.height,`${ref.file} predictions`);
     const predicted=actual.nuclei.items.map(p=>({...p,x:(p.x+0.5)*ref.sourceWidth/actual.width-0.5,y:(p.y+0.5)*ref.sourceHeight/actual.height-0.5}));
@@ -105,14 +108,18 @@ export function compareNucleiReference(result, reference, {radius}={}) {
     for(const m of matched.matches)classifications[m.referencePositive?(m.predictedPositive?'truePositive':'falseNegative'):(m.predictedPositive?'falsePositive':'trueNegative')]++;
     records.push({file:ref.file,status:'compared',sourceKind:ref.sourceKind,reviewer:ref.reviewer,reviewedOn:ref.reviewedOn,method:ref.method,...matched,
       detection:scores(matched.matches.length,matched.unmatchedPredictionIds.length,matched.missedReferenceIds.length),
+      ...(ref.hScore===undefined?{}:{hScore:{reference:ref.hScore,observed:actual.overall.hScore,error:actual.overall.hScore-ref.hScore,absoluteError:Math.abs(actual.overall.hScore-ref.hScore)}}),
       classificationOnMatched:{...classifications,n:matched.matches.length,accuracy:matched.matches.length?(classifications.truePositive+classifications.trueNegative)/matched.matches.length:null}});
   }
   const unreferencedFiles=result.files.filter(f=>!seen.has(f.file)).map(f=>f.file);
   const stable=result.provenance.status==='success'&&['inputsUnchanged','engineUnchanged','bridgeUnchanged'].every(k=>result.provenance.checks?.[k]===true);
   const good=records.filter(r=>r.status==='compared');
   const totals=good.reduce((a,r)=>[a[0]+r.detection.truePositives,a[1]+r.detection.falsePositives,a[2]+r.detection.falseNegatives],[0,0,0]);
+  const scoresAvailable=good.filter(r=>r.hScore);
   return {schemaVersion:'wisplab.ihc-nuclei-comparison/v1',status:!stable||unreferencedFiles.length||records.some(r=>r.status==='incomplete')?'incomplete':records.some(r=>r.status==='pending-review')?'pending-review':'compared',
     matchRadiusSourcePixels:radius,matchingMethod:'Maximum cardinality within radius, distance/ID ordered; labels ignored',records,unreferencedFiles,
     summaries:good.length?{nImages:good.length,detection:scores(...totals)}:null,
+    hScoreSummary:scoresAvailable.length?{nImages:scoresAvailable.length,meanAbsoluteError:scoresAvailable.reduce((sum,r)=>sum+r.hScore.absoluteError,0)/scoresAvailable.length,
+      meanSignedError:scoresAvailable.reduce((sum,r)=>sum+r.hScore.error,0)/scoresAvailable.length}:null,
     note:'Centroid detection matching, not mask overlap accuracy. Classification is conditional on matched nuclei. No acceptance threshold is implied. / 核中心检测匹配，不是分割轮廓精度；分类仅评价匹配核，无内置通过标准。'};
 }

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -14,6 +14,9 @@ test('lock checks distinguish clean matching, mismatched, dirty and non-git dire
   git(['init']); git(['-c','user.name=Test','-c','user.email=test@example.invalid','commit','--allow-empty','-m','fixture']);
   const sha = git(['rev-parse','HEAD']);
   assert.equal(checkEngineRevision(dir, sha).verified, true);
+  mkdirSync(join(dir,'subdirectory'));
+  assert.equal(checkEngineRevision(join(dir,'subdirectory'), sha).verified, false);
+  assert.match(checkEngineRevision(join(dir,'subdirectory'), sha).revisionError, /repository root/);
   assert.equal(checkEngineRevision(dir, '0'.repeat(40)).matchesLock, false);
   writeFileSync(join(dir, 'new.txt'), 'edited');
   const dirty = checkEngineRevision(dir, sha); assert.equal(dirty.matchesLock, true); assert.equal(dirty.dirty, true); assert.equal(dirty.verified, false);

@@ -27,6 +27,10 @@ wisplab pcr instrument.xlsx --sheet 'Results' --header-row 7 \
 
 The shared API uses `importOptions: {sheet, headerRow, columns}`. Parse-only preview needs no reference, control or groups and performs no QC exclusion or expression inference. The runner uses `mode: "preview"`; the CLI command is `pcr-preview`.
 
+CLI `pcr-preview` 和 MCP `pcr_preview` 同样支持 `timeoutMs`/`--timeout-ms` 与取消；进度走 stderr 或请求指定的 MCP 进度 token。预览命令仍需配置 PCR 引擎以复用真实文件解析器。
+
+CLI `pcr-preview` and MCP `pcr_preview` support the same `timeoutMs`/`--timeout-ms` and cancellation controls. Progress uses stderr or the requested MCP progress token. Preview still requires a configured PCR engine to use the actual file parsers.
+
 `files[].importPreview` 返回工作表列表、实际选择、表头行、1-based 列索引和字母、完整数据行与表头前的 `preambleRows`。每行有 `sourceRow`、`analysisRowId`、`rawValues`、`parsed`、`issues`。`rawValues` 为文件读取后规范化的文本（与既有引擎一致：去首尾空白、数值保留至小数点后 10 位），不是原始文件字节。空白数据行保留在预览中，其 `analysisRowId` 为 `null`；分析继续使用原有非空数据行编号，供 `--exclude-rows` 使用。RDML 的来源行是生成表格的行号，明确标为 `RDML-generated-table-1-based`，并非 XML 文本行号。
 
 `files[].importPreview` contains sheet names, the actual selection, header row, 1-based column indices and letters, all data rows and `preambleRows` before the header. Each row has `sourceRow`, `analysisRowId`, `rawValues`, `parsed` and `issues`. `rawValues` are reader-normalized text (matching the existing engine: trimmed strings and numbers rounded to 10 decimal places), not original file bytes. Blank data rows stay in the preview with a null `analysisRowId`; analysis retains the existing nonblank row numbering used by `--exclude-rows`. RDML source coordinates are explicitly `RDML-generated-table-1-based`, not XML line numbers.
@@ -49,6 +53,15 @@ If automatic mapping is unresolved, preview remains inspectable with `canAnalyze
 在 `biologicalDesign` 内设置 `paired: true` 和 `pairIds`（样本名 → 配对 ID）。`pairIds` 必须准确覆盖 `samples`：不许缺样本、多样本名、空 ID 或同一组/同一对内有多个生物学样本；每个配对 ID 必须在设计中的每个组各有一个样本。配对是实验设计声明，不能因为两组样本数相同就自动建立。省略 `paired` 为非配对；非配对设计附带 `pairIds` 会报错，避免静默忽略。
 
 Set `paired: true` and a sample-to-pair-ID `pairIds` mapping inside `biologicalDesign`. `pairIds` must exactly cover `samples`: no missing or extra sample names, empty IDs or multiple biological samples within the same group/pair. Every pair ID must have exactly one sample in each declared group. Pairing is a declaration about the experiment and is never inferred from equal group sizes. Omitting `paired` means unpaired; supplying `pairIds` without `paired: true` fails rather than ignoring it.
+
+CLI 对应参数 / Corresponding CLI flags:
+
+```sh
+wisplab pcr plate.csv --ref GAPDH \
+  --groups '{"C1":"Control","C2":"Control","S1":"Treatment","S2":"Treatment"}' \
+  --control-group Control --paired \
+  --pair-ids '{"C1":"Subject1","S1":"Subject1","C2":"Subject2","S2":"Subject2"}'
+```
 
 技术孔先聚合成每个生物学样本的 log2 归一化表达量。对于每个目标基因和处理/对照比较，只有双方都保留有效目标及所选内参的配对才进入推断。缺失或 QC 排除会移除该比较的整对，`pairing.omittedPairs` 列出配对 ID、双方样本名及原因；其他目标和比较独立判断。`nPairs`、`usedPairIds`、均值效应和区间均使用同一完整配对子集。增加技术孔不增加生物学 n 或配对数。
 

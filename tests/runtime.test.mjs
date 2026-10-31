@@ -29,7 +29,7 @@ async function fixture(t) {
     }
     rmSync(dir, { recursive: true, force: true });
   });
-  for (const file of ['runtime-controls.mjs', 'runtime-worker.mjs', 'mcp-server.mjs', 'image-review.mjs']) copyFileSync(new URL(`../${file}`, import.meta.url), join(dir, file));
+  for (const file of ['runtime-controls.mjs', 'runtime-worker.mjs', 'mcp-server.mjs', 'image-review.mjs', 'pcr-groups.mjs', 'pcr-inference.mjs', 'pcr-import.mjs']) copyFileSync(new URL(`../${file}`, import.meta.url), join(dir, file));
   writeFileSync(join(dir, 'package.json'), '{"type":"module","version":"test"}');
   const port = await unusedPort();
   const cfg = { path: join(dir, 'config.json'), allowPaths: [dir], ihc: { devPort: port } };

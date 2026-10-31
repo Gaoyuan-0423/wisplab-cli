@@ -40,7 +40,7 @@ export function installEngines(options, execute = step => {
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
-    const options = { root: './wisplab-engines', configPath: './wisplab.verified.config.json' }; let planOnly = false;
+    const options = { root: '../wisplab-verified-engines', configPath: './wisplab.verified.config.json' }; let planOnly = false;
     for (let i = 2; i < process.argv.length; i++) {
       const arg = process.argv[i];
       if (arg === '--plan') planOnly = true;

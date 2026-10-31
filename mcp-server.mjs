@@ -8,6 +8,8 @@ import { createInterface } from "node:readline";
 import * as lib from "./lib.mjs";
 import { runAnalysisJob } from "./runtime-controls.mjs";
 import { roiManifestSchema } from "./image-review.mjs";
+import { normalizeBiologicalDesign } from "./pcr-groups.mjs";
+import { normalizePcrImportOptions } from "./pcr-import.mjs";
 
 const CLI_DIR = dirname(fileURLToPath(import.meta.url));
 const { version } = JSON.parse(readFileSync(join(CLI_DIR, "package.json"), "utf8"));
@@ -39,6 +41,12 @@ function checkedPath(path, roots, kind = "file") {
 
 // Validate the JSON Schema subset used by this server's fixed tool definitions.
 function validate(value, schema, label = "arguments") {
+  if (schema.anyOf) {
+    for (const option of schema.anyOf) {
+      try { validate(value, option, label); return; } catch {}
+    }
+    throw new Error(`${label}: expected one of ${schema.anyOf.map(option => option.type).join(" | ")}`);
+  }
   const validType = schema.type === "object" ? isObject(value)
     : schema.type === "array" ? Array.isArray(value)
     : schema.type === "integer" ? Number.isInteger(value)
@@ -71,6 +79,14 @@ const runtimeSchema = { type: "object", additionalProperties: false, properties:
 } };
 
 const batchRuntimeSchema = { ...runtimeSchema, properties: { timeoutMs: runtimeSchema.properties.timeoutMs } };
+const columnSelectorSchema = { anyOf: [{type:"string",minLength:1},{type:"integer",minimum:1}],
+  description:"Exact header name or 1-based column number / 准确表头名称或从1开始的列号" };
+const pcrImportSchema = { type:"object",additionalProperties:false,properties:{
+  sheet:{type:"string",minLength:1,description:"Exact sheet name; numeric strings are names, not indices / 准确工作表名，数字字符串也按名称处理"},
+  headerRow:{type:"integer",minimum:1,description:"1-based physical source row, including blank rows / 包含空白行的物理表头行号"},
+  columns:{type:"object",additionalProperties:false,required:["sample","target","cq"],
+    properties:Object.fromEntries(["plate","well","sample","group","pairId","target","task","cq","quantity"].map(key=>[key,columnSelectorSchema]))},
+} };
 
 function toolsFor(engine) {
 return [
@@ -141,14 +157,15 @@ return [
   {
     name: "pcr_analyze",
     description:
-      "Analyze qPCR inputs (CSV/TXT/TSV, Excel XLSX/XLS/XLSM/XLSB, or RDML; first worksheet with a warning for multiple worksheets) with the pcr-workbench engine: replicate pooling, single-reference normalization (multiple references optional), ΔΔCt (Livak) or Pfaffl efficiency-corrected fold change, NTC report, Welch t / ANOVA+Dunnett on individual ΔCt.",
+      "Analyze qPCR tables or RDML with optional exact sheet/column mapping. One reference is sufficient. Explicit biological groups use unpaired Welch or paired t inference with 95% log2FC/FC intervals and Holm correction; technical wells do not increase biological n. Without a biological design, legacy well-level results remain explicit. Includes QC and NTC diagnostics.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
       required: ["files"],
       properties: {
         runtime: batchRuntimeSchema,
-        files: { type: "array", minItems: 1, items: { type: "string", minLength: 1 }, description: "数据文件路径（CSV/TXT/TSV、XLSX/XLS/XLSM/XLSB 或 RDML；Excel 使用首个工作表）" },
+        importOptions: pcrImportSchema,
+        files: { type: "array", minItems: 1, items: { type: "string", minLength: 1 }, description: "数据文件路径；默认首表，可用 importOptions.sheet 显式选表 / Data files; first sheet by default, exact name selection optional" },
         refGenes: { type: "array", items: { type: "string", minLength: 1 }, description: "内参基因名，单个即可；多个可选 / One reference gene is sufficient" },
         controlSamples: { type: "array", items: { type: "string", minLength: 1 }, description: "对照样本名（Sample 列中的名字）" },
         qc: { type: "object", additionalProperties: false, properties: {
@@ -161,15 +178,27 @@ return [
         biologicalDesign: { type: "object", additionalProperties: false, required: ["samples", "controlGroup"], properties: {
           samples: { type: "object", additionalProperties: { type: "string", minLength: 1 } },
           controlGroup: { type: "string", minLength: 1 },
-        }, description: "Explicit independent biological sample-to-group mapping; unpaired only / 显式独立生物学样本分组，仅非配对" },
+          paired: { type: "boolean", description: "Explicit paired design, requires pairIds / 配对设计须提供pairIds" },
+          pairIds: { type: "object", additionalProperties: { type: "string", minLength: 1 }, description: "Complete sample-to-pair-ID mapping / 完整样本名到配对ID映射" },
+        }, description: "Explicit biological sample groups; paired is false by default / 显式生物学样本分组，默认非配对" },
         efficiencies: { type: "object", additionalProperties: { type: "number", exclusiveMinimum: 0 }, description: "每基因扩增效率百分比，如 {\"LDHA\":92}；覆盖 RDML 声明效率，无效率信息时用 100（Livak）" },
       },
     },
     call: (a) => engine.runPcr({
       runtime: a.runtime, files: a.files ?? [], refGenes: a.refGenes ?? [], controlSamples: a.controlSamples ?? [],
-      biologicalDesign: a.biologicalDesign ?? null,
+      biologicalDesign: a.biologicalDesign ?? null, importOptions: a.importOptions ?? {},
       efficiencies: a.efficiencies ?? {}, qc: a.qc ?? {}, qcMode: a.qcMode ?? "report", excludeRows: a.excludeRows ?? [],
     }),
+  },
+  {
+    name: "pcr_preview",
+    description: "Parse qPCR data without expression inference or QC exclusion. Inspect worksheet names, selected sheet, exact header/column mapping, physical source rows, parsed values and issues before analysis. No reference gene, control or biological design is required / 仅解析预览，检查数据来源和列映射，不做定量推断。",
+    inputSchema: {type:"object",additionalProperties:false,required:["files"],properties:{
+      runtime:batchRuntimeSchema,
+      files:{type:"array",minItems:1,items:{type:"string",minLength:1}},
+      importOptions:pcrImportSchema,
+    }},
+    call: a => engine.previewPcr({files:a.files,importOptions:a.importOptions??{},runtime:a.runtime}),
   },
   {
     name: "pcr_verify",
@@ -195,6 +224,7 @@ export function createMcpHandler({ cfg, engine = lib, notify = () => {} }) {
   if (engine === lib) engine = {
     runWb: ({ runtime, ...args }) => runAnalysisJob("wb", args, cfg, runtime),
     runPcr: ({ runtime, ...args }) => runAnalysisJob("pcr", args, cfg, runtime),
+    previewPcr: ({ runtime, ...args }) => runAnalysisJob("pcr-preview", args, cfg, runtime),
     runIhc: args => lib.runIhc(args),
     runVerifyPcr: (dir, runtime) => runAnalysisJob("verify-pcr", { dir }, cfg, runtime),
   };
@@ -213,6 +243,8 @@ export function createMcpHandler({ cfg, engine = lib, notify = () => {} }) {
   async function dispatch(tool, args, runtime) {
     validate(args, tool.inputSchema);
     const input = { ...args };
+    if (tool.name === "pcr_analyze" || tool.name === "pcr_preview") input.importOptions = normalizePcrImportOptions(input.importOptions);
+    if (tool.name === "pcr_analyze" && input.biologicalDesign !== undefined) input.biologicalDesign = normalizeBiologicalDesign(input.biologicalDesign);
     if (tool.name === "pcr_verify") {
       input.dir = checkedPath(input.dir ?? join(homedir(), "Downloads", "WispLab预印本验证", "pcr"), roots, "directory");
       for (const script of ["dump_app.ts", "reference_check.py"]) checkedPath(join(input.dir, script), roots);

@@ -96,6 +96,29 @@ test('CLI passes explicit QC policy and rejects inconsistent thresholds', (t) =>
   assert.notEqual(run(['pcr','one.csv','two.csv','--config',cfg,'--exclude-rows','2'],dir).status,0);
 });
 
+test('CLI preview uses the cancellable worker and preserves exact sheet/header/column parameters',t=>{
+ const {dir,cfg}=fixture(t),columns={sample:'Specimen',target:2,cq:3};
+ const result=run(['pcr-preview','instrument.xlsx','--config',cfg,'--sheet','2','--header-row','7','--columns',JSON.stringify(columns),'--timeout-ms','6000'],dir);
+ assert.equal(result.status,0,result.stderr);const output=JSON.parse(result.stdout);
+ assert.equal(output.payload.mode,'preview');assert.deepEqual(output.payload.importOptions,{sheet:'2',headerRow:7,columns});
+ assert.equal(output.payload.refGenes,undefined);assert.equal(output.runtime.timeoutMs,6000);
+ assert.equal(output.provenance.analysis,'pcr-preview');assert.match(result.stderr,/Analysis completed/);
+ for(const args of [['--header-row','0'],['--columns','{"sample":1,"target":2}'],['--ref','R'],['--paired']])
+   assert.notEqual(run(['pcr-preview','instrument.xlsx','--config',cfg,...args],dir).status,0);
+});
+
+test('CLI paired design forwards explicit pair ids with one reference and rejects incomplete flag combinations',t=>{
+ const {dir,cfg}=fixture(t),samples={C1:'C',C2:'C',S1:'S',S2:'S'},pairIds={C1:'P1',S1:'P1',C2:'P2',S2:'P2'};
+ const common=['pcr','instrument.xlsx','--config',cfg,'--ref','GAPDH','--groups',JSON.stringify(samples),'--control-group','C'];
+ const result=run([...common,'--paired','--pair-ids',JSON.stringify(pairIds),'--sheet','Results','--columns','{"sample":1,"target":2,"cq":3}'],dir);
+ assert.equal(result.status,0,result.stderr);const {payload}=JSON.parse(result.stdout);
+ assert.deepEqual(payload.biologicalDesign,{samples,controlGroup:'C',paired:true,pairIds});
+ assert.deepEqual(payload.refGenes,['GAPDH']);assert.deepEqual(payload.controlSamples,['C1','C2']);
+ assert.equal(payload.importOptions.sheet,'Results');
+ for(const args of [['--paired'],['--pair-ids',JSON.stringify(pairIds)],['--paired','--pair-ids','{"C1":"P1"}']])
+   assert.notEqual(run([...common,...args],dir).status,0);
+});
+
 test('ihc-validate compares JSON offline without a config or installed engines', t => {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), 'wisplab-offline-')));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
@@ -142,12 +165,14 @@ test('CLI runtime controls keep stdout JSON and progress on stderr', t => {
 test('CLI worker timeout emits a structured error JSON without fabricated provenance', { timeout: 5000 }, t => {
   const { dir, engine, cfg } = fixture(t);
   writeFileSync(join(engine, 'node_modules', '.bin', 'tsx'), `#!${process.execPath}\nsetInterval(() => {}, 1000);\n`, { mode: 0o755 });
-  const result = run(['wb', 'image.png', '--config', cfg, '--timeout-ms', '200'], dir);
-  assert.equal(result.status, 1, result.stderr);
-  const error = JSON.parse(result.stdout);
-  assert.equal(error.code, 'BATCH_TIMEOUT'); assert.match(error.error, /timed out/);
-  assert.equal(Object.hasOwn(error, 'provenance'), false);
-  assert.match(result.stderr, /timed out/);
+  for(const command of ['wb','pcr-preview']) {
+    const result = run([command, 'image.png', '--config', cfg, '--timeout-ms', '200'], dir);
+    assert.equal(result.status, 1, result.stderr);
+    const error = JSON.parse(result.stdout);
+    assert.equal(error.code, 'BATCH_TIMEOUT'); assert.match(error.error, /timed out/);
+    assert.equal(Object.hasOwn(error, 'provenance'), false);
+    assert.match(result.stderr, /timed out/);
+  }
 });
 
 test('CLI SIGTERM cancels a running worker and emits structured cancellation JSON', { timeout: 7000 }, async t => {

@@ -1,5 +1,6 @@
 # 本机真实配置（含个人路径）不入库：首次使用拷贝 example 并改名
 wisplab.config.json
+wisplab.verified.config.json
 # runner 临时文件
 .run/
 # 日志与评分输出
