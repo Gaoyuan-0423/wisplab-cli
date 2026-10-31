@@ -75,7 +75,8 @@ function pcrFixture(t) {
         const bytes = new Uint8Array(await file.arrayBuffer());
         if (String(bytes) !== '80,75,255,0') throw new Error('binary input was corrupted');
         if (file.name.endsWith('.rdml')) return { kind: 'rdml', matrix: [['Sample','Target','Cq'],['C','T','20']], targetEfficiencies: { T: 93, R: 99 } };
-        return { kind: 'workbook', sheetNames: ['First','Second'], wb: {} };
+        const sheet = { '!ref':'A1:C2', A1:{v:'Sample'},B1:{v:'Target'},C1:{v:'Cq'},A2:{v:'C'},B2:{v:'T'},C2:{v:20} };
+        return { kind: 'workbook', sheetNames: ['First','Second'], wb: {Sheets:{First:sheet,Second:sheet}} };
       }
       export function sheetToRawMatrix(wb, sheet) { if (sheet !== 'First') throw new Error('wrong worksheet'); return [['Sample','Target','Cq'],['C','T','20']]; }
     `,
@@ -158,4 +159,16 @@ test('WB preserves good-bad-good results across missing and corrupt images', t =
     assert.match(r.data.images[1].error, /ENOENT|corrupt/);
     assert.deepEqual(r.data.images[2].lanes, r.data.images[0].lanes);
   }
+});
+
+test('PCR parse-only preview selects an exact sheet and never runs analysis/QC',t=>{
+ const f=pcrFixture(t);
+ const file=f.run({files:[join(f.dir,'table.xlsx')],mode:'preview',importOptions:{sheet:'Second',headerRow:1,columns:{sample:1,target:2,cq:3}},
+   qcMode:'invalid',biologicalDesign:{paired:true}}).data.files[0];
+ assert.equal(file.status,'success');assert.equal(file.sheet,'Second');
+ assert.equal(file.primaryAnalysis,undefined);assert.equal(file.qcReport,undefined);assert.equal(file.results,undefined);
+ assert.equal(file.importPreview.canAnalyze,true);assert.equal(file.importPreview.rows[0].sourceRow,2);
+ assert.ok(!file.warnings.some(w=>w.includes('Only the first worksheet')));
+ const bad=f.run({files:[join(f.dir,'table.xlsx')],mode:'preview',importOptions:{sheet:'Missing'}}).data.files[0];
+ assert.equal(bad.status,'error');assert.match(bad.error,/Worksheet not found/);assert.equal(bad.primaryAnalysis,undefined);
 });

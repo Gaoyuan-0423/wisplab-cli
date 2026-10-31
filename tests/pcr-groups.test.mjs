@@ -30,3 +30,48 @@ test('Holm uses the whole planned family and preserves null comparisons',()=>{
  const actual=holmAdjust([0.01,0.04,null,0.03]);
  actual.forEach((v,i)=>assert.ok(v===null?i===2:Math.abs(v-[0.04,0.09,0,0.09][i])<1e-12));
 });
+
+test('paired design requires exact sample coverage, one sample per group/pair and all groups per pair',()=>{
+ const pairIds={C1:'P1',C2:'P2',S1:'P1',S2:'P2'};
+ assert.deepEqual(normalizeBiologicalDesign({...design,paired:true,pairIds}).pairIds,pairIds);
+ assert.throws(()=>normalizeBiologicalDesign({...design,pairIds}),/requires paired/);
+ assert.throws(()=>normalizeBiologicalDesign({...design,paired:'yes',pairIds}),/boolean/);
+ assert.throws(()=>normalizeBiologicalDesign({...design,paired:true}),/explicit/);
+ assert.throws(()=>normalizeBiologicalDesign({...design,paired:true,pairIds:{C1:'P1',S1:'P1',TYPO:'P2'}}),/missing: C2, S2; unknown: TYPO/);
+ assert.throws(()=>normalizeBiologicalDesign({...design,paired:true,pairIds:{...pairIds,C2:'P1'}}),/Duplicate/);
+ assert.throws(()=>normalizeBiologicalDesign({...design,paired:true,pairIds:{...pairIds,S2:'P3'}}),/Incomplete pairId/);
+ assert.throws(()=>normalizeBiologicalDesign({...design,paired:true,pairIds:{...pairIds,S2:' P2'}}),/whitespace/);
+});
+
+test('paired inference follows declared ids regardless of row order and matches independent R',()=>{
+ // R: t.test(c(2,5,8,10),c(1,3,5,9),paired=TRUE).
+ const samples={C1:'C',C2:'C',C3:'C',C4:'C',S4:'S',S2:'S',S1:'S',S3:'S'};
+ const pairIds=Object.fromEntries(Object.keys(samples).map(s=>[s,`P${s.slice(1)}`]));
+ const logs={C1:1,C2:3,C3:5,C4:9,S1:2,S2:5,S3:8,S4:10};
+ const data=Object.entries(logs).reverse().flatMap(([sample,log2])=>[{sample,target:'R',cq:20},{sample,target:'T',cq:20-log2}]);
+ const opts={refGenes:['R'],biologicalDesign:{samples,controlGroup:'C',paired:true,pairIds}};
+ const result=analyzeBiologicalGroups(data,opts,{...api,welchTTest:()=>{throw Error('paired design must not call Welch');}});
+ const c=result.comparisons[0], s=result.summaries[1];
+ const close=(a,b)=>assert.ok(Math.abs(a-b)<1e-10,`${a} != ${b}`);
+ assert.equal(c.inferenceMethod,'paired-t');assert.equal(c.nPairs,4);assert.equal(c.df,3);
+ assert.equal(c.log2FoldChange,1.75);close(c.pValue,0.035352847002517);
+ close(c.log2FoldChangeCI95[0],0.22651981917118771);close(c.log2FoldChangeCI95[1],3.27348018082881209);
+ close(c.foldChangeCI95[0],1.1700091555078791);close(c.foldChangeCI95[1],9.6697606559101565);
+ assert.deepEqual(s.log2FoldChangeCI95,c.log2FoldChangeCI95);
+ assert.deepEqual(c.pairing.usedPairIds,['P4','P2','P1','P3']);
+ assert.deepEqual(result.comparisons,analyzeBiologicalGroups(data.flatMap(r=>[r,r]),opts,api).comparisons);
+ const missing=analyzeBiologicalGroups(data.filter(r=>!(r.sample==='C4'&&r.target==='R')),opts,api);
+ const m=missing.comparisons[0];assert.equal(m.nPairs,3);assert.equal(m.nControl,3);
+ assert.equal(m.log2FoldChange,2);assert.deepEqual(m.pairing.usedPairIds,['P2','P1','P3']);
+ assert.deepEqual(m.pairing.omittedPairs,[{pairId:'P4',sample:'S4',controlSample:'C4',sampleReason:null,controlReason:'missing-reference'}]);
+ assert.deepEqual(missing.summaries[1].missingSamples,['S4']);
+ assert.equal(missing.summaries[1].foldChange,4);
+});
+
+test('constant paired differences and fewer than two complete pairs are reported without invented inference',()=>{
+ const opts={...options,biologicalDesign:{...design,paired:true,pairIds:{C1:'1',C2:'2',S1:'1',S2:'2'}}};
+ const constant=analyzeBiologicalGroups(rows,opts,api).comparisons[0];
+ assert.equal(constant.reason,'zero-variance');assert.equal(constant.pValue,null);assert.equal(constant.log2FoldChangeCI95,null);
+ const missing=analyzeBiologicalGroups(rows.map(r=>({...r,excluded:r.sample==='S2'})),opts,api).comparisons[0];
+ assert.equal(missing.reason,'insufficient-complete-pairs');assert.equal(missing.nPairs,1);assert.equal(missing.foldChangeCI95,null);
+});
