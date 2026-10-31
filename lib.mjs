@@ -169,7 +169,7 @@ export async function runIhc({ files, coloc = false, profile = "h_dab", controlT
   const inputs = files.map(path => ({path}));
   if (controlTif) inputs.push({path: controlTif, role: "control"});
   const result = await trackAnalysis({ analysis: coloc ? "if" : "ihc", engineDir: repo("ihc", cfg.repos.ihc), bridgeDir: CLI_DIR, parameters, inputs },
-    () => runIhcBatch({files, coloc, profile, controlTif, ...imageOptions}, cfg, runtime));
+    () => runIhcBatch({files, coloc, profile, controlTif, ...imageOptions}, cfg, runtime), { signal: runtime.signal });
   if (result.error) {
     result.provenance.status = result.files.some(file => !file.error) ? "partial-error" : "error";
     result.provenance.error = result.error;

@@ -15,6 +15,10 @@ wisplab pcr plate.csv --ref GAPDH --control C1 --timeout-ms 300000 > result.json
 
 CLI progress goes to stderr, leaving stdout as JSON. IHC/IF report completed-image counts; WB/qPCR report batch start and completion without estimating time remaining. Ctrl-C or SIGTERM cancels CLI analysis and stops its worker and child processes. A nonzero exit status means the analysis did not fully succeed; retain any available error or partial-result JSON.
 
+IHC/IF 的分析前后追溯使用异步文件流和可取消的 Git 检查，因此大文件或慢 Git 不会阻塞 MCP 心跳和取消。若分析结束后的追溯被取消，已完成图像仍保留，未完成的 hash/源码检查明确标为未验证，顶层返回 `CANCELLED`。配置在任务开始时固定为已解析快照；长驻 MCP 不会因配置文件被改写或删除而换用其他引擎，IHC 超时重启也继续使用同一引擎路径和端口。要启用新配置，请重启 MCP 服务。
+
+IHC/IF provenance uses asynchronous file streams and cancellable Git checks before and after analysis, keeping MCP ping and cancellation responsive during large-file or slow-Git checks. If final tracing is cancelled, completed images remain available, incomplete hash/source checks are explicitly unverified, and the result carries `CANCELLED`. Each job uses a resolved configuration snapshot. Editing or deleting its source file cannot change a persistent MCP server's engines, and IHC timeout restarts retain the same engine path and port. Restart the MCP server to apply new configuration.
+
 ## 批量结果 / Batch results
 
 - WB 单图读取、解码、裁剪或测量失败时，保留该图的 `error` 和其他图的结果，继续处理后续图。CLI 返回非零退出码；MCP 设置 `isError: true`。
