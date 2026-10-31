@@ -29,7 +29,7 @@ function fixture(t, kind, modules) {
 function wbFixture(t) {
   const f = fixture(t, 'wb', {
     'real/pixels': `
-      export function decodeRaster() { return { width: 20, height: 20, bitDepth: 8, pixels: new Float64Array(400) }; }
+      export function decodeRaster(bytes, name) { if (name.includes('corrupt')) throw new Error('corrupt image'); return { width: 20, height: 20, bitDepth: 8, pixels: new Float64Array(400) }; }
       export function proposeRegions() { return [1, 2].map(lane => ({ lane, source: 'automatic', band: {x: 1, y: 1, width: 1, height: 1}, background: {x: 1, y: 2, width: 1, height: 1} })); }
       export function measureRegion(raster, region) { return { bandSum: 1, backgroundMean: 2, net: 10 * region.lane, warnings: region.source === 'automatic' ? ['CANDIDATES_REQUIRE_REVIEW'] : [] }; }
     `,
@@ -54,17 +54,17 @@ test('WB crop preserves automatic-review warnings and maps image coordinates', t
 test('WB missing control fails instead of silently using lane one', t => {
   const f = wbFixture(t);
   const r = f.run({ ...f.payload, controlLane: 3 });
-  assert.notEqual(r.status, 0);
-  assert.match(r.stderr, /Control lane not found/);
-  assert.equal(r.data, undefined);
+  assert.equal(r.status, 0);
+  assert.match(r.data.images[0].error, /Control lane not found/);
+  assert.equal(r.data.images[0].lanes, undefined);
 });
 
 test('WB rejects malformed, empty and out-of-image strips', t => {
   const f = wbFixture(t);
   for (const strip of ['0,10,0', '0,10,,20', '0.5,10,0,20', '0,0,0,20', '0,10,5,5', '15,10,0,20', '0,10,0,21', '-1,10,0,20']) {
     const r = f.run({ ...f.payload, strip });
-    assert.notEqual(r.status, 0, strip);
-    assert.match(r.stderr, /strip/);
+    assert.equal(r.status, 0, strip);
+    assert.match(r.data.images[0].error, /strip/);
   }
 });
 
@@ -75,7 +75,8 @@ function pcrFixture(t) {
         const bytes = new Uint8Array(await file.arrayBuffer());
         if (String(bytes) !== '80,75,255,0') throw new Error('binary input was corrupted');
         if (file.name.endsWith('.rdml')) return { kind: 'rdml', matrix: [['Sample','Target','Cq'],['C','T','20']], targetEfficiencies: { T: 93, R: 99 } };
-        return { kind: 'workbook', sheetNames: ['First','Second'], wb: {} };
+        const sheet = { '!ref':'A1:C2', A1:{v:'Sample'},B1:{v:'Target'},C1:{v:'Cq'},A2:{v:'C'},B2:{v:'T'},C2:{v:20} };
+        return { kind: 'workbook', sheetNames: ['First','Second'], wb: {Sheets:{First:sheet,Second:sheet}} };
       }
       export function sheetToRawMatrix(wb, sheet) { if (sheet !== 'First') throw new Error('wrong worksheet'); return [['Sample','Target','Cq'],['C','T','20']]; }
     `,
@@ -143,4 +144,31 @@ test('PCR parse failures retain the requested primary analysis kind', t => {
   const file=f.run({files:[join(f.dir,'missing.csv')],biologicalDesign:{samples:{C:'C',S:'S'},controlGroup:'C'}}).data.files[0];
   assert.match(file.error,/ENOENT/);assert.equal(file.primaryAnalysis.kind,'biological-groups');
   assert.equal(file.primaryAnalysis.status,'error');assert.deepEqual(file.primaryAnalysis.summaries,[]);
+});
+
+
+test('WB preserves good-bad-good results across missing and corrupt images', t => {
+  const f = wbFixture(t);
+  const corrupt = join(f.dir, 'corrupt.png'); writeFileSync(corrupt, 'bad');
+  const good = f.payload.files[0];
+  for (const bad of [join(f.dir, 'missing.png'), corrupt]) {
+    const r = f.run({ ...f.payload, files: [good, bad, good] });
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.data.images.length, 3);
+    assert.deepEqual(r.data.images[0].lanes.map(l => l.ratio), [1, 2]);
+    assert.match(r.data.images[1].error, /ENOENT|corrupt/);
+    assert.deepEqual(r.data.images[2].lanes, r.data.images[0].lanes);
+  }
+});
+
+test('PCR parse-only preview selects an exact sheet and never runs analysis/QC',t=>{
+ const f=pcrFixture(t);
+ const file=f.run({files:[join(f.dir,'table.xlsx')],mode:'preview',importOptions:{sheet:'Second',headerRow:1,columns:{sample:1,target:2,cq:3}},
+   qcMode:'invalid',biologicalDesign:{paired:true}}).data.files[0];
+ assert.equal(file.status,'success');assert.equal(file.sheet,'Second');
+ assert.equal(file.primaryAnalysis,undefined);assert.equal(file.qcReport,undefined);assert.equal(file.results,undefined);
+ assert.equal(file.importPreview.canAnalyze,true);assert.equal(file.importPreview.rows[0].sourceRow,2);
+ assert.ok(!file.warnings.some(w=>w.includes('Only the first worksheet')));
+ const bad=f.run({files:[join(f.dir,'table.xlsx')],mode:'preview',importOptions:{sheet:'Missing'}}).data.files[0];
+ assert.equal(bad.status,'error');assert.match(bad.error,/Worksheet not found/);assert.equal(bad.primaryAnalysis,undefined);
 });

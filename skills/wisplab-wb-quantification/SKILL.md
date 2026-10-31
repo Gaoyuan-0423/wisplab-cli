@@ -50,3 +50,10 @@ Record inputs, parameters, and engine revisions from `doctor`. Historical ImageJ
 
 计算本地运行，但 AI 客户端可能向模型服务发送结果或附件；不得声称数据必然不离开电脑。
 Computation is local, but the AI client may send results or attachments to its model provider; do not promise that data never leaves the computer.
+
+
+运行前区分 `doctor.ready` 与 `verified`；需要本仓库已验证修订时运行 `wisplab doctor --strict`。新装可用 `node scripts/setup-engines.mjs --root NEW_DIRECTORY --config NEW_FILE`，不覆盖已有目录/配置；路径以实际 CLI 安装位置为准。
+Distinguish `doctor.ready` from `verified`; use `wisplab doctor --strict` for this bridge's verified revisions. New installs can use `node scripts/setup-engines.mjs --root NEW_DIRECTORY --config NEW_FILE`, which refuses existing paths; resolve the script from the installed CLI location.
+
+CLI `--timeout-ms` / MCP `runtime.timeoutMs` 设置整批时限（默认 300000 ms）。进度在 CLI stderr，MCP 仅对提供进度 token 的请求发送；取消会终止 worker。WB/qPCR 被强制中断时可能只有任务错误、没有完整结果；勿将其报告成成功。WB 普通逐图错误会保留其他图并继续。
+CLI `--timeout-ms` / MCP `runtime.timeoutMs` sets the batch deadline (default 300000 ms). Progress uses CLI stderr or an explicitly requested MCP progress token; cancellation stops the worker. Forced WB/qPCR interruption may return only a job error without complete results; never report success. Ordinary WB per-image failures preserve other images and continue.

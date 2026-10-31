@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 
 export function readEngineLock(path = new URL('./engines.lock.json', import.meta.url)) {
@@ -19,6 +19,8 @@ export function checkEngineRevision(path, expectedRevision) {
     return r.stdout.trim();
   };
   try {
+    if(realpathSync(git(['rev-parse', '--show-toplevel'])) !== realpathSync(path))
+      throw new Error('Configured engine path is not a repository root');
     const revision = git(['rev-parse', 'HEAD']);
     const dirty = git(['status', '--porcelain']).length > 0;
     return { revision, expectedRevision, matchesLock: revision === expectedRevision, dirty,

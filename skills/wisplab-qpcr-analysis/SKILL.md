@@ -4,7 +4,8 @@ description: >-
   Analyze qPCR data tables with the pcr-workbench engine: replicate pooling,
   single-reference normalization (multiple references optional), ΔΔCt (Livak)
   and Pfaffl efficiency-corrected fold change, NTC contamination reports,
-  biological-group Welch/Holm and legacy well-level Welch/ANOVA + Dunnett. Use whenever the user gives you a qPCR export
+  biological-group Welch or paired t-tests with Holm and individual 95% intervals,
+  plus legacy well-level Welch/ANOVA + Dunnett. Use whenever the user gives you a qPCR export
   (QuantStudio/CFX/LightCycler CSV, 仪器导出表格) or asks about 相对定量/ΔΔCt/
   2^-ΔΔCt/Pfaffl/效率校正/内参/对照孔/NTC/熔解QC/组间统计/显著性 — even without
   saying "WispLab". You (the agent) construct and run the wisplab pcr command
@@ -14,16 +15,16 @@ description: >-
 
 # qPCR 相对定量 / Relative qPCR analysis
 
-使用 `wisplab pcr` 或 MCP `pcr_analyze`。以实际解析和统计输出为准，不自行猜测缺少的实验设计。
-Use `wisplab pcr` or MCP `pcr_analyze`. Base the report on actual parsing and statistical output; do not invent missing experimental design.
+先用 `wisplab pcr-preview` 或 MCP `pcr_preview` 检查导入，再用 `wisplab pcr` / `pcr_analyze` 分析。以实际解析和统计输出为准，不自行猜测缺少的实验设计。
+Inspect import with `wisplab pcr-preview` or MCP `pcr_preview`, then analyze with `wisplab pcr` / `pcr_analyze`. Base the report on actual parsing and statistical output; do not invent missing experimental design.
 
 ## 环境与输入 / Setup and inputs
 
 运行 `wisplab doctor`；没有全局命令时使用 `node /path/to/wisplab-cli/cli.mjs doctor`。需要配置的 PCR 仓库及其 `tsx` 与依赖。
 Run `wisplab doctor`, or `node /path/to/wisplab-cli/cli.mjs doctor` at the installed location. The configured PCR repository, its `tsx`, and dependencies are required.
 
-复用上游导入器，支持 CSV/TXT/TSV（UTF-8/GBK）、Excel（XLSX/XLS/XLSM/XLSB）、RDML。Excel 只取首个工作表，多工作表有警告；不要声称自动合并所有工作表。
-The upstream importer supports CSV/TXT/TSV (UTF-8/GBK), Excel (XLSX/XLS/XLSM/XLSB), and RDML. Excel uses only the first worksheet, with a warning for multiple sheets; do not claim all worksheets are merged.
+复用上游导入器，支持 CSV/TXT/TSV（UTF-8/GBK）、Excel（XLSX/XLS/XLSM/XLSB）、RDML。Excel 可用 `--sheet` 按准确名称选表，省略时默认首表并提示多表；不自动合并。用 `--header-row` 指定含空行的 1-based 物理表头行，`--columns` 指定准确表头名或 1-based 列号。MCP 对应 `importOptions: {sheet, headerRow, columns}`。
+The upstream importer supports CSV/TXT/TSV (UTF-8/GBK), Excel (XLSX/XLS/XLSM/XLSB), and RDML. Excel supports exact-name `--sheet` selection; omission defaults to the first sheet with a multi-sheet warning, without merging. `--header-row` is a 1-based physical row including blank rows; `--columns` accepts exact header names or 1-based column numbers. MCP uses `importOptions: {sheet, headerRow, columns}`.
 
 ## 实验信息与执行 / Experimental details and execution
 
@@ -31,6 +32,7 @@ The upstream importer supports CSV/TXT/TSV (UTF-8/GBK), Excel (XLSX/XLS/XLSM/XLS
 Establish exact reference-gene and control-sample names, and how technical/biological replicates are encoded, from existing context. Ask only for missing essentials. Do not treat automatically chosen defaults as a user-confirmed design.
 
 ```sh
+wisplab pcr-preview /path/to/plate.csv
 wisplab pcr /path/to/plate.csv --ref GAPDH --control C1,C2
 wisplab pcr /path/to/plate.csv --ref GAPDH --control C1 --eff "LDHA=92;GAPDH=99"
 ```
@@ -45,18 +47,23 @@ Read `files[].primaryAnalysis` first: check `kind`, `statisticalUnit`, `status` 
 
 | 主结果 / Primary result | 解读 / Interpretation |
 | --- | --- |
-| `kind: biological-groups`, `statisticalUnit: biological-sample`, `status: success` | 报告组别、靶标、生物学 n、组间 fold change、Welch p 与 Holm 校正 p。技术孔不能增加生物学 n。 / Report group, target, biological n, group fold change, Welch p and Holm-adjusted p; technical wells do not increase biological n. |
+| `kind: biological-groups`, `statisticalUnit: biological-sample`, `status: success` | 按实际方法报告组别、靶标、生物学 n/完整配对数、fold change、单次未校正 95% CI、Welch 或配对 t 检验 p 与 Holm 校正 p。技术孔不能增加生物学 n。 / Report group, target, biological n/complete pairs, fold change, individual unadjusted 95% CI, Welch or paired-t p and Holm-adjusted p; technical wells do not increase biological n. |
 | `kind: well-level`, `statisticalUnit: well`, `status: success` | 按主结果中的逐孔统计方法解读；不称为生物学组间推断。 / Interpret the stated well-level methods; do not present them as biological-group inference. |
 | `status: error` | 报告错误及仍可用的 QC/NTC 诊断，不报告失败分析的统计结论。 / Report the error and available QC/NTC diagnostics, not a failed analysis's statistical conclusions. |
 
 若用户请求了 `biologicalDesign`，而分组失败，`primaryAnalysis` 必须保持 `kind: biological-groups` 和错误状态。**绝不能回退到旧 `results`，把逐孔 p 值当作分组 p 值。** 输出缺少 `primaryAnalysis` 时应核对版本和实际分析模式，不猜测统计单位。
 If `biologicalDesign` was requested but failed, the primary result must remain `kind: biological-groups` with error status. **Never fall back to legacy `results` and present well-level p-values as group inference.** If `primaryAnalysis` is absent, verify the version and actual analysis mode rather than guessing the statistical unit.
 
-生物学分组的 Welch 检验使用每个生物学样本的 log2 归一化表达量（效率均为 100% 时等于 −ΔCt）；Holm 校正覆盖该文件预先计划的靶标×处理组比较。旧逐孔统计中的 `pValue` 由 `statMethod` 决定：ANOVA 分支为总体检验，`pAdjusted` 为相对对照的 Dunnett 校正；不能与分组 Welch/Holm 混用。保留 `null`，不把缺失统计量写成“不显著”；极小非零 p 值使用科学计数法，不按显示精度写成 0。
-Biological-group Welch tests use each sample's log2 normalized expression (−ΔCt when all efficiencies are 100%); Holm covers the planned target × treatment comparisons in that file. In legacy well-level statistics, interpret `pValue` according to `statMethod`: ANOVA is omnibus and `pAdjusted` is the Dunnett comparison to control. Do not mix those with group Welch/Holm. Preserve null values rather than calling unavailable tests nonsignificant. Display very small nonzero p-values in scientific notation instead of rounding them to 0.
+非配对 Welch 使用每个生物学样本的 log2 归一化表达量（效率均为 100% 时等于 −ΔCt）；显式配对 t 检验使用完整配对内的表达差。Holm 校正覆盖该文件预先计划的靶标×处理组比较。旧逐孔统计中的 `pValue` 由 `statMethod` 决定：ANOVA 分支为总体检验，`pAdjusted` 为相对对照的 Dunnett 校正；不能与分组 Welch/Holm 混用。保留 `null`，不把缺失统计量写成“不显著”；极小非零 p 值使用科学计数法，不按显示精度写成 0。
+Unpaired Welch tests use each sample's log2 normalized expression (−ΔCt at 100% efficiency); explicit paired t-tests use complete within-pair differences. Holm covers the planned target × treatment comparisons in that file. In legacy well-level statistics, interpret `pValue` according to `statMethod`: ANOVA is omnibus and `pAdjusted` is the Dunnett comparison to control. Do not mix those with group Welch/Holm. Preserve null values rather than calling unavailable tests nonsignificant. Display very small nonzero p-values in scientific notation instead of rounding them to 0.
 
-如实报告内参缺失、NTC 和重复质量警告。可配置逐孔 QC、复孔 SD 报告及显式行排除，默认不自动剔除；只启用部分规则不代表全部质控通过。显式生物学分组支持单文件、非配对设计；不能把技术重复当独立生物学重复。
-Report missing references, NTC findings and replicate-quality warnings accurately. Per-well QC, replicate-SD reporting and explicit exclusions are configurable; report-only is the default and partial QC is not a complete pass. Explicit biological grouping supports a single file and an unpaired design; technical replicates are not independent biological replicates.
+如实报告内参缺失、NTC 和重复质量警告。可配置逐孔 QC、复孔 SD 报告及显式行排除，默认不自动剔除；只启用部分规则不代表全部质控通过。显式分组限单文件，可非配对或用 `--paired --pair-ids` 声明配对；MCP 使用 `biologicalDesign.paired` 与 `pairIds`。不得猜测配对，检查缺失配对原因；不能把技术重复当独立生物学重复。95% CI 未作多重校正，与 Holm p 分开解读。
+Report missing references, NTC findings and replicate-quality warnings accurately. Per-well QC, replicate-SD reporting and explicit exclusions are configurable; report-only is the default and partial QC is not a complete pass. Grouping accepts one file, unpaired or explicitly paired using `--paired --pair-ids` (MCP: `biologicalDesign.paired` and `pairIds`). Never infer pairing; inspect omitted-pair reasons. Technical replicates are not independent biological replicates. The 95% CIs are unadjusted and must be interpreted separately from Holm p-values.
+
+预览不需要内参/对照，不做表达量推断；检查 `importPreview.canAnalyze`、`errors` 与逐行 `issues`。`partially-parsed-cq` 等问题须先核对原始文件，不能将预览成功视作所有数据通过 QC。正式分析保存 `importReport`；物理 `sourceRow` 与 `analysisRowId` 可能不同，排除行使用后者。
+Preview requires no reference/control and performs no expression inference. Inspect `importPreview.canAnalyze`, `errors` and row `issues`; resolve partially parsed Cq values against the source. Preview completion is not a QC pass. Analysis retains `importReport`; physical `sourceRow` may differ from `analysisRowId`, which is used for row exclusion.
+
+[导入与配对 / Import and pairing](../../docs/pcr-import-design.md).
 
 ## 验证 / Verification
 
@@ -71,3 +78,10 @@ Computation is local; the AI client may send tool results or attachments to its 
 生物学分组 / Biological groups: [说明 / Guide](../../docs/qpcr-groups.md).
 
 单个内参即可进行 qPCR 分析（例如 `--ref GAPDH`）；多个内参为可选功能。 / One reference gene is sufficient (for example `--ref GAPDH`); multiple reference genes are optional.
+
+
+运行前区分 `doctor.ready` 与 `verified`；需要本仓库已验证修订时运行 `wisplab doctor --strict`。新装可用 `node scripts/setup-engines.mjs --root NEW_DIRECTORY --config NEW_FILE`，不覆盖已有目录/配置；路径以实际 CLI 安装位置为准。
+Distinguish `doctor.ready` from `verified`; use `wisplab doctor --strict` for this bridge's verified revisions. New installs can use `node scripts/setup-engines.mjs --root NEW_DIRECTORY --config NEW_FILE`, which refuses existing paths; resolve the script from the installed CLI location.
+
+CLI `--timeout-ms` / MCP `runtime.timeoutMs` 设置整批时限（默认 300000 ms）。进度在 CLI stderr，MCP 仅对提供进度 token 的请求发送；取消会终止 worker。WB/qPCR 被强制中断时可能只有任务错误、没有完整结果；勿将其报告成成功。WB 普通逐图错误会保留其他图并继续。
+CLI `--timeout-ms` / MCP `runtime.timeoutMs` sets the batch deadline (default 300000 ms). Progress uses CLI stderr or an explicitly requested MCP progress token; cancellation stops the worker. Forced WB/qPCR interruption may return only a job error without complete results; never report success. Ordinary WB per-image failures preserve other images and continue.

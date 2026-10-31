@@ -5,11 +5,13 @@
 Regular `doctor` separates dependency readiness from revision verification. `doctor --strict` requires installed dependencies and all three clean, exact revisions from `engines.lock.json`. This does not independently validate numerical accuracy or fingerprint ignored dependency contents.
 
 ```sh
-node scripts/setup-engines.mjs --root ./verified-engines --config ./verified.config.json --plan
-node scripts/setup-engines.mjs --root ./verified-engines --config ./verified.config.json
-node cli.mjs doctor --config ./verified.config.json --strict
+node scripts/setup-engines.mjs --root ../wisplab-verified-engines --config ./wisplab.verified.config.json --plan
+node scripts/setup-engines.mjs --root ../wisplab-verified-engines --config ./wisplab.verified.config.json
+node cli.mjs doctor --config ./wisplab.verified.config.json --strict
 ```
 
 安装器克隆到全新目录，检出锁定修订，运行各仓库 `npm ci` 并安装对应 Chromium；不会更新已有仓库或覆盖配置。父目录应存在；现有目标目录会被拒绝。安装需要网络；失败后保留部分目录用于排查，重试使用新目录。Linux 如缺浏览器系统依赖，按 Playwright 提示安装后再检查。数据目录按需添加到生成配置的 `allowPaths`。
 
 The installer clones new repositories, checks out exact commits, installs locked dependencies and Chromium, then writes a new config. Existing destinations/configs are refused. The parent directory must exist. Network access is required; partial directories remain on failure for inspection. Choose a new destination when retrying. Install any platform dependencies requested by Playwright and add your data directories to `allowPaths` as needed.
+
+默认引擎目录位于桥接仓库外，避免嵌套仓库影响源码追溯；默认生成的本地配置已被 Git 忽略。 / The default engine directory is outside the bridge repository; the default local config is Git-ignored.

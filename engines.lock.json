@@ -2,8 +2,17 @@
   "schemaVersion": 1,
   "verifiedOn": "2026-10-31",
   "engines": {
-    "wb": { "repository": "Gaoyuan-0423/blot-workbench", "revision": "fd867d89fab3602ad24a2d5cb973e54577595b4e" },
-    "ihc": { "repository": "Gaoyuan-0423/pathology-workbench", "revision": "bb9c45c0fc81fe7ea0c449d209e9d63e6eb66a2e" },
-    "pcr": { "repository": "Gaoyuan-0423/pcr-workbench", "revision": "be08747d01f787888b76be717dd99d565fed6755" }
+    "wb": {
+      "repository": "Gaoyuan-0423/blot-workbench",
+      "revision": "fd867d89fab3602ad24a2d5cb973e54577595b4e"
+    },
+    "ihc": {
+      "repository": "Gaoyuan-0423/pathology-workbench",
+      "revision": "10e74654979dca10c6b6c2d60d4b34316f21011e"
+    },
+    "pcr": {
+      "repository": "Gaoyuan-0423/pcr-workbench",
+      "revision": "be08747d01f787888b76be717dd99d565fed6755"
+    }
   }
 }

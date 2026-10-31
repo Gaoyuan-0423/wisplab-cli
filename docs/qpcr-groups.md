@@ -10,9 +10,24 @@ wisplab pcr plate.csv --ref GAPDH \
   --control-group Control
 ```
 
-MCP: `biologicalDesign: {samples: {C1: "Control", C2: "Control", T1: "Treatment", T2: "Treatment"}, controlGroup: "Control"}`. Each sample label explicitly declares one independent biological unit. Repeated technical wells must share that sample label; do not give each well a different biological ID. The input Group column is not automatically treated as an independence declaration. This mode accepts one file and an unpaired design. Controls are derived from the mapping; a conflicting `--control` fails.
+MCP: `biologicalDesign: {samples: {C1: "Control", C2: "Control", T1: "Treatment", T2: "Treatment"}, controlGroup: "Control"}`. Each sample label explicitly declares one independent biological unit. Repeated technical wells must share that sample label; do not give each well a different biological ID. The input Group column is not automatically treated as an independence declaration. This mode accepts one file, using unpaired Welch by default or an explicitly declared paired design. Controls are derived from the mapping; a conflicting `--control` fails.
 
-每个 Sample 名代表用户声明的一个独立生物学样本，技术复孔共用样本名。程序不从 Group 列猜测独立性。仅支持单文件、非配对设计；配对、重复测量、跨板批次校正不在此模式内。
+每个 Sample 名代表用户声明的一个独立生物学样本，技术复孔共用样本名。程序不从 Group 列猜测独立性。仅支持单文件；默认非配对 Welch，也支持显式配对 t 检验。一般重复测量模型与跨板批次校正仍不支持。对照来自映射，冲突的 `--control` 会报错。
+
+## 显式配对 / Explicit pairing
+
+```sh
+wisplab pcr plate.csv --ref GAPDH \
+  --groups '{"C1":"Control","C2":"Control","T1":"Treatment","T2":"Treatment"}' \
+  --control-group Control --paired \
+  --pair-ids '{"C1":"P1","T1":"P1","C2":"P2","T2":"P2"}'
+```
+
+MCP 在 `biologicalDesign` 内增加 `paired: true` 与 `pairIds`。配对 ID 必须完整覆盖声明的样本，每个 ID 在每组恰有一个样本；不从孔名、Group/Pair 列或组大小推断配对。每个靶标/比较仅保留双方都有有效靶标和所选内参的完整配对，检查 `nPairs`、`pairing.usedPairIds` 和 `pairing.omittedPairs`。缺失一侧会排除该比较的整对；技术孔不增加配对数。
+
+In MCP add `paired: true` and `pairIds` inside `biologicalDesign`. IDs must exactly cover declared samples, with one sample per group for every ID. Pairing is never inferred from well names, Group/Pair columns or equal group sizes. Each target/comparison retains only pairs with usable target and selected-reference data on both sides; inspect `nPairs`, `pairing.usedPairIds` and `pairing.omittedPairs`. Missing one side excludes the whole pair from that comparison; technical wells do not increase pair count.
+
+For import preview, explicit worksheet/header/column selection and full paired-design details, see [导入与配对 / Import and pairing](pcr-import-design.md).
 
 ## 主结果与失败状态 / Primary results and failure status
 
@@ -28,11 +43,15 @@ After explicit QC, technical Cq values are averaged within each sample/target; s
 
 `L = -meanCq(target) * log2(1 + efficiency(target)/100) + meanReferenceCq * log2(1 + meanReferenceEfficiency/100)`.
 
-With 100% efficiencies, L = −ΔCt. Group fold change is `2^(mean(L_group) − mean(L_control))`, with equal biological sample weights; it is a ratio of geometric means, not the legacy mean of per-well fold changes. RDML efficiencies and explicit overrides use the same precedence as normal analysis. Every selected reference must have retained data within a biological sample; incomplete samples stay listed with reasons and are omitted for that target.
+With 100% efficiencies, L = −ΔCt. Unpaired group fold change is `2^(mean(L_group) − mean(L_control))`, with equal biological sample weights; it is a ratio of geometric means, not the legacy mean of per-well fold changes. RDML efficiencies and explicit overrides use the same precedence as normal analysis. Every selected reference must have retained data within a biological sample; incomplete samples stay listed with reasons and are omitted for that target.
 
 先按样本聚合技术孔，再给每个生物学样本相同权重。`biologicalGroups.units` 记录可用孔数与缺失原因，`summaries` 记录实际 n 和声明 n。效率均为 100% 时在 −ΔCt 上检验；效率校正时在上述 L 上检验。旧的逐孔 `results` 保持原口径，不能与此分组统计混用。
 
-Two-sided Welch tests compare each treatment against control on per-sample L. Holm adjustment includes all planned target × treatment comparisons in this file (untestable comparisons count toward the family and keep null outputs). Each side needs at least two usable biological samples for a p-value; otherwise it remains null. When both variances are zero, statistics are unavailable, not p=1. These rules concern biological sample counts, never the number of references. Technical replicates do not establish biological independence, and the mapping cannot verify the experiment's design.
+Unpaired designs use two-sided Welch tests on per-sample L. Paired designs use a two-sided t-test on within-pair differences; fold change and inference use the same complete-pair subset. Holm adjustment includes all planned target × treatment comparisons in this file (untestable comparisons count toward the family and keep null outputs). Unpaired tests need at least two usable samples on each side; paired tests need at least two complete pairs. Insufficient data, zero paired-difference variance, or zero variance on both unpaired sides leave statistics unavailable rather than p=1. These rules concern biological sample counts, never the number of references. Technical replicates do not establish biological independence, and the mapping cannot verify the experiment's design.
+
+每次比较返回 `confidenceLevel: 0.95`、`log2FoldChangeCI95` 与 `foldChangeCI95`。这是**单次比较、未多重校正**的 95% 区间；`pAdjusted` 另作 Holm 校正，不能把区间解释成同时置信区间。对照自身比值不提供区间，不可计算时保留 `null` 与原因。
+
+Comparisons return `confidenceLevel: 0.95`, `log2FoldChangeCI95` and `foldChangeCI95`. These are **individual, unadjusted** 95% intervals; `pAdjusted` separately uses Holm, so the intervals are not simultaneous confidence intervals. Control self-ratios have no interval; unavailable statistics retain null values and reasons.
 
 Method references: [NIST Welch–Satterthwaite test](https://www.itl.nist.gov/div898/handbook/eda/section3/eda353.htm), [R Holm adjustment documentation](https://stat.ethz.ch/R-manual/R-devel/library/stats/html/p.adjust.html).
 

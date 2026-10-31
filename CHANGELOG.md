@@ -1,5 +1,13 @@
 # Changelog / 更新记录
 
+## 0.8.0 — 2026-10-31
+
+- WB 逐图错误隔离；IHC/IF 单图及整批时限、取消清理和进度；MCP 长任务不阻塞 ping/取消。 / Isolate WB image errors; bounded/cancellable analysis with progress and responsive MCP control messages.
+- 按锁定修订安装引擎，doctor 区分依赖可用与干净版本验证，支持严格退出码。 / Install verified engine revisions and check them with strict doctor mode.
+- IHC 导入哈希绑定 ROI/原图标尺/可选核中心，IF 选择 RGB 通道，导出本地 PNG 与 HTML 复核报告。 / SHA-bound IHC ROIs, source calibration, optional nucleus centroids, IF RGB selection, and local PNG/HTML review exports.
+- PCR 选表、列映射、来源行预览；显式配对设计与非配对/配对 95% 效应区间，继续支持单内参。 / PCR sheet/column selection and source-row preview; explicit pairing and unadjusted 95% effect intervals with single-reference support.
+- 独立人工核标注包（缩放、草稿、可选 H-score）及哈希绑定的核中心匹配评估；空模板保持待复核。真实人工验证需独立标注后完成。 / Independent nucleus annotation packs and spatial matching; empty templates remain pending. Real manual validation requires independently reviewed labels.
+
 ## 0.7.0 — 2026-10-31
 
 - PCR 主结果显式标注统计单位，分组错误保留 QC/NTC，固定稳定 Welch 尾概率修订。 / Explicit PCR primary results and retained diagnostics; pin stable Welch tail evaluation.

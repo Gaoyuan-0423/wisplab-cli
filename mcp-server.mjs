@@ -6,6 +6,10 @@ import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline";
 import * as lib from "./lib.mjs";
+import { runAnalysisJob } from "./runtime-controls.mjs";
+import { roiManifestSchema } from "./image-review.mjs";
+import { normalizeBiologicalDesign } from "./pcr-groups.mjs";
+import { normalizePcrImportOptions } from "./pcr-import.mjs";
 
 const CLI_DIR = dirname(fileURLToPath(import.meta.url));
 const { version } = JSON.parse(readFileSync(join(CLI_DIR, "package.json"), "utf8"));
@@ -37,6 +41,12 @@ function checkedPath(path, roots, kind = "file") {
 
 // Validate the JSON Schema subset used by this server's fixed tool definitions.
 function validate(value, schema, label = "arguments") {
+  if (schema.anyOf) {
+    for (const option of schema.anyOf) {
+      try { validate(value, option, label); return; } catch {}
+    }
+    throw new Error(`${label}: expected one of ${schema.anyOf.map(option => option.type).join(" | ")}`);
+  }
   const validType = schema.type === "object" ? isObject(value)
     : schema.type === "array" ? Array.isArray(value)
     : schema.type === "integer" ? Number.isInteger(value)
@@ -49,6 +59,7 @@ function validate(value, schema, label = "arguments") {
   if (schema.minLength && value.trim().length < schema.minLength) throw new Error(`${label}: must not be empty`);
   if (schema.type === "array") {
     if (schema.minItems && value.length < schema.minItems) throw new Error(`${label}: at least ${schema.minItems} item required`);
+    if (schema.maxItems && value.length > schema.maxItems) throw new Error(`${label}: at most ${schema.maxItems} items allowed`);
     value.forEach((item, i) => validate(item, schema.items, `${label}[${i}]`));
   }
   if (schema.type === "object") {
@@ -62,6 +73,21 @@ function validate(value, schema, label = "arguments") {
   }
 }
 
+const runtimeSchema = { type: "object", additionalProperties: false, properties: {
+  timeoutMs: { type: "integer", minimum: 1, description: "Batch deadline in milliseconds (default 300000)" },
+  fileTimeoutMs: { type: "integer", minimum: 1, description: "IHC/IF image deadline in milliseconds (default 120000)" },
+} };
+
+const batchRuntimeSchema = { ...runtimeSchema, properties: { timeoutMs: runtimeSchema.properties.timeoutMs } };
+const columnSelectorSchema = { anyOf: [{type:"string",minLength:1},{type:"integer",minimum:1}],
+  description:"Exact header name or 1-based column number / 准确表头名称或从1开始的列号" };
+const pcrImportSchema = { type:"object",additionalProperties:false,properties:{
+  sheet:{type:"string",minLength:1,description:"Exact sheet name; numeric strings are names, not indices / 准确工作表名，数字字符串也按名称处理"},
+  headerRow:{type:"integer",minimum:1,description:"1-based physical source row, including blank rows / 包含空白行的物理表头行号"},
+  columns:{type:"object",additionalProperties:false,required:["sample","target","cq"],
+    properties:Object.fromEntries(["plate","well","sample","group","pairId","target","task","cq","quantity"].map(key=>[key,columnSelectorSchema]))},
+} };
+
 function toolsFor(engine) {
 return [
   {
@@ -73,6 +99,7 @@ return [
       additionalProperties: false,
       required: ["files"],
       properties: {
+        runtime: batchRuntimeSchema,
         files: { type: "array", minItems: 1, items: { type: "string", minLength: 1 }, description: "图像文件绝对路径（PNG/TIFF）" },
         lanes: { type: "integer", minimum: 1, description: "泳道数；省略则 3–8 自动尝试" },
         strip: { type: "string", description: "多面板图的人工面板条带 'y,h,x0,x1'（像素）；单面板省略" },
@@ -83,7 +110,7 @@ return [
       },
     },
     call: (a) => engine.runWb({
-      files: a.files, lanes: a.lanes ?? null, strip: a.strip ?? null,
+      runtime: a.runtime, files: a.files, lanes: a.lanes ?? null, strip: a.strip ?? null,
       bg: a.bg ?? "local", radius: a.radius ?? 50,
       signal: a.signal ?? "dark", controlLane: a.controlLane ?? 1,
     }),
@@ -91,18 +118,24 @@ return [
   {
     name: "ihc_quantify",
     description:
-      "Quantify IHC / H&E / Masson histology image(s) with the pathology-workbench engine: Ruifrok colour deconvolution, background subtraction, positivity threshold (per-image Otsu; control-slide calibration for H-DAB only), nuclei segmentation, H-score. Returns whole-image metrics. JPEG/TIFF/PNG.",
+      "Quantify IHC / H&E / Masson histology image(s): colour deconvolution, positivity threshold, nuclei counts and H-score. Optional SHA-bound source-pixel ROI import, nucleus center export, mpp and local review HTML/PNGs. Overlay shows positive stain, not nuclear contours. JPEG/TIFF/PNG.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
       required: ["files"],
       properties: {
+        runtime: runtimeSchema,
         files: { type: "array", minItems: 1, items: { type: "string", minLength: 1 }, description: "图像文件绝对路径" },
         profile: { type: "string", enum: ["h_dab", "h_eosin", "masson"], description: "染色预设（默认 h_dab）" },
         controlTif: { type: "string", minLength: 1, description: "H-DAB 未染色对照片路径；按 0.1% 假阳率标定阈值（仅 h_dab）" },
+        roiManifest: { ...roiManifestSchema, description: "SHA-256-bound source-pixel rectangles / 与原图哈希绑定的矩形 ROI" },
+        mpp: { type: "number", exclusiveMinimum: 0, description: "Original source pixel size in µm/px / 原图像素尺寸" },
+        includeNuclei: { type: "boolean", description: "Export nucleus centers in working coordinates / 导出工作图核中心坐标" },
+        reviewDir: { type: "string", minLength: 1, description: "Existing local output directory inside allowPaths; creates a new review subdirectory / 已存在的本地输出目录" },
       },
     },
-    call: (a) => engine.runIhc({ files: a.files ?? [], coloc: false, profile: a.profile ?? "h_dab", controlTif: a.controlTif ?? null }),
+    call: (a) => engine.runIhc({ runtime: a.runtime, files: a.files ?? [], coloc: false, profile: a.profile ?? "h_dab", controlTif: a.controlTif ?? null,
+      roiManifest: a.roiManifest ?? null, mpp: a.mpp ?? null, includeNuclei: a.includeNuclei ?? false, reviewDir: a.reviewDir ?? null }),
   },
   {
     name: "if_colocalize",
@@ -112,20 +145,27 @@ return [
       type: "object",
       additionalProperties: false,
       required: ["files"],
-      properties: { files: { type: "array", minItems: 1, items: { type: "string", minLength: 1 }, description: "图像文件绝对路径" } },
+      properties: {
+        runtime: runtimeSchema,
+        files: { type: "array", minItems: 1, items: { type: "string", minLength: 1 }, description: "图像文件绝对路径" },
+        channels: { type: "array", minItems: 2, maxItems: 2, items: { type: "string", enum: ["R", "G", "B"] }, description: "Two distinct RGB channels, default R,G / 两个不同 RGB 通道" },
+        reviewDir: { type: "string", minLength: 1, description: "Existing local output directory inside allowPaths / 已存在的本地输出目录" },
+      },
     },
-    call: (a) => engine.runIhc({ files: a.files ?? [], coloc: true, profile: "if_coloc", controlTif: null }),
+    call: (a) => engine.runIhc({ runtime: a.runtime, files: a.files ?? [], coloc: true, profile: "if_coloc", controlTif: null, channels: a.channels ?? null, reviewDir: a.reviewDir ?? null }),
   },
   {
     name: "pcr_analyze",
     description:
-      "Analyze qPCR inputs (CSV/TXT/TSV, Excel XLSX/XLS/XLSM/XLSB, or RDML; first worksheet with a warning for multiple worksheets) with the pcr-workbench engine: replicate pooling, single-reference normalization (multiple references optional), ΔΔCt (Livak) or Pfaffl efficiency-corrected fold change, NTC report, Welch t / ANOVA+Dunnett on individual ΔCt.",
+      "Analyze qPCR tables or RDML with optional exact sheet/column mapping. One reference is sufficient. Explicit biological groups use unpaired Welch or paired t inference with 95% log2FC/FC intervals and Holm correction; technical wells do not increase biological n. Without a biological design, legacy well-level results remain explicit. Includes QC and NTC diagnostics.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
       required: ["files"],
       properties: {
-        files: { type: "array", minItems: 1, items: { type: "string", minLength: 1 }, description: "数据文件路径（CSV/TXT/TSV、XLSX/XLS/XLSM/XLSB 或 RDML；Excel 使用首个工作表）" },
+        runtime: batchRuntimeSchema,
+        importOptions: pcrImportSchema,
+        files: { type: "array", minItems: 1, items: { type: "string", minLength: 1 }, description: "数据文件路径；默认首表，可用 importOptions.sheet 显式选表 / Data files; first sheet by default, exact name selection optional" },
         refGenes: { type: "array", items: { type: "string", minLength: 1 }, description: "内参基因名，单个即可；多个可选 / One reference gene is sufficient" },
         controlSamples: { type: "array", items: { type: "string", minLength: 1 }, description: "对照样本名（Sample 列中的名字）" },
         qc: { type: "object", additionalProperties: false, properties: {
@@ -138,15 +178,27 @@ return [
         biologicalDesign: { type: "object", additionalProperties: false, required: ["samples", "controlGroup"], properties: {
           samples: { type: "object", additionalProperties: { type: "string", minLength: 1 } },
           controlGroup: { type: "string", minLength: 1 },
-        }, description: "Explicit independent biological sample-to-group mapping; unpaired only / 显式独立生物学样本分组，仅非配对" },
+          paired: { type: "boolean", description: "Explicit paired design, requires pairIds / 配对设计须提供pairIds" },
+          pairIds: { type: "object", additionalProperties: { type: "string", minLength: 1 }, description: "Complete sample-to-pair-ID mapping / 完整样本名到配对ID映射" },
+        }, description: "Explicit biological sample groups; paired is false by default / 显式生物学样本分组，默认非配对" },
         efficiencies: { type: "object", additionalProperties: { type: "number", exclusiveMinimum: 0 }, description: "每基因扩增效率百分比，如 {\"LDHA\":92}；覆盖 RDML 声明效率，无效率信息时用 100（Livak）" },
       },
     },
     call: (a) => engine.runPcr({
-      files: a.files ?? [], refGenes: a.refGenes ?? [], controlSamples: a.controlSamples ?? [],
-      biologicalDesign: a.biologicalDesign ?? null,
+      runtime: a.runtime, files: a.files ?? [], refGenes: a.refGenes ?? [], controlSamples: a.controlSamples ?? [],
+      biologicalDesign: a.biologicalDesign ?? null, importOptions: a.importOptions ?? {},
       efficiencies: a.efficiencies ?? {}, qc: a.qc ?? {}, qcMode: a.qcMode ?? "report", excludeRows: a.excludeRows ?? [],
     }),
+  },
+  {
+    name: "pcr_preview",
+    description: "Parse qPCR data without expression inference or QC exclusion. Inspect worksheet names, selected sheet, exact header/column mapping, physical source rows, parsed values and issues before analysis. No reference gene, control or biological design is required / 仅解析预览，检查数据来源和列映射，不做定量推断。",
+    inputSchema: {type:"object",additionalProperties:false,required:["files"],properties:{
+      runtime:batchRuntimeSchema,
+      files:{type:"array",minItems:1,items:{type:"string",minLength:1}},
+      importOptions:pcrImportSchema,
+    }},
+    call: a => engine.previewPcr({files:a.files,importOptions:a.importOptions??{},runtime:a.runtime}),
   },
   {
     name: "pcr_verify",
@@ -155,9 +207,9 @@ return [
     inputSchema: {
       type: "object",
       additionalProperties: false,
-      properties: { dir: { type: "string", minLength: 1, description: "验证材料目录（默认 ~/Downloads/WispLab预印本验证/pcr）" } },
+      properties: { runtime: batchRuntimeSchema, dir: { type: "string", minLength: 1, description: "验证材料目录（默认 ~/Downloads/WispLab预印本验证/pcr）" } },
     },
-    call: (a) => engine.runVerifyPcr(a.dir),
+    call: (a) => engine.runVerifyPcr(a.dir, a.runtime),
   },
 ];
 
@@ -168,7 +220,16 @@ function textResult(value) {
 }
 
 /** Build an isolated dispatcher. Engine injection keeps protocol tests independent of analysis dependencies. */
-export function createMcpHandler({ cfg, engine = lib }) {
+export function createMcpHandler({ cfg, engine = lib, notify = () => {} }) {
+  if (engine === lib) engine = {
+    runWb: ({ runtime, ...args }) => runAnalysisJob("wb", args, cfg, runtime),
+    runPcr: ({ runtime, ...args }) => runAnalysisJob("pcr", args, cfg, runtime),
+    previewPcr: ({ runtime, ...args }) => runAnalysisJob("pcr-preview", args, cfg, runtime),
+    runIhc: args => lib.runIhc(args),
+    runVerifyPcr: (dir, runtime) => runAnalysisJob("verify-pcr", { dir }, cfg, runtime),
+  };
+  const active = new Map();
+  let queue = Promise.resolve();
   const configuredRoots = cfg.allowPaths ?? [join(homedir(), "Downloads"), "/tmp"];
   if (!Array.isArray(configuredRoots) || configuredRoots.some((path) => typeof path !== "string" || !path.trim()))
     throw new Error("allowPaths must be an array of non-empty paths");
@@ -179,20 +240,24 @@ export function createMcpHandler({ cfg, engine = lib }) {
   const tools = toolsFor(engine);
   let legacyVersion = null;
 
-  async function dispatch(tool, args) {
+  async function dispatch(tool, args, runtime) {
     validate(args, tool.inputSchema);
     const input = { ...args };
+    if (tool.name === "pcr_analyze" || tool.name === "pcr_preview") input.importOptions = normalizePcrImportOptions(input.importOptions);
+    if (tool.name === "pcr_analyze" && input.biologicalDesign !== undefined) input.biologicalDesign = normalizeBiologicalDesign(input.biologicalDesign);
     if (tool.name === "pcr_verify") {
       input.dir = checkedPath(input.dir ?? join(homedir(), "Downloads", "WispLab预印本验证", "pcr"), roots, "directory");
       for (const script of ["dump_app.ts", "reference_check.py"]) checkedPath(join(input.dir, script), roots);
     } else {
       input.files = input.files.map((path) => checkedPath(path, roots));
       if (input.controlTif !== undefined) input.controlTif = checkedPath(input.controlTif, roots);
+      if (input.reviewDir !== undefined) input.reviewDir = checkedPath(input.reviewDir, roots, "directory");
     }
+    input.runtime = { ...input.runtime, ...runtime };
     return await tool.call(input);
   }
 
-  return async function handleMessage(message) {
+  const handleMessage = async function (message) {
     let msg;
     try { msg = typeof message === "string" ? JSON.parse(message) : message; }
     catch { return { jsonrpc: "2.0", id: null, error: { code: -32700, message: "Parse error" } }; }
@@ -202,7 +267,14 @@ export function createMcpHandler({ cfg, engine = lib }) {
     });
     if (!isObject(msg) || msg.jsonrpc !== "2.0" || typeof msg.method !== "string")
       return error(-32600, "Invalid Request");
-    if (!Object.hasOwn(msg, "id")) return null; // Notifications never receive responses.
+    if (!Object.hasOwn(msg, "id")) {
+      if (msg.method === "notifications/cancelled") {
+        const requestId = msg.params?.requestId;
+        if ((typeof requestId === "string" || Number.isInteger(requestId)) &&
+            (msg.params.reason === undefined || typeof msg.params.reason === "string")) active.get(requestId)?.abort();
+      }
+      return null;
+    }
     if (typeof msg.id !== "string" && !Number.isInteger(msg.id)) return error(-32600, "Invalid request ID");
     if (msg.params !== undefined && !isObject(msg.params)) return error(-32602, "params must be an object");
     const params = msg.params ?? {};
@@ -246,13 +318,33 @@ export function createMcpHandler({ cfg, engine = lib }) {
             return error(-32602, "Tool arguments must be an object");
           const tool = tools.find((candidate) => candidate.name === params.name);
           if (!tool) return error(-32602, `Unknown tool: ${params.name}`);
+          if (active.has(msg.id)) return error(-32600, "Request ID already active");
+          const controller = new AbortController();
+          active.set(msg.id, controller);
+          const progressToken = metadata?.progressToken;
+          let progress = -Infinity;
+          const runtime = { signal: controller.signal, onProgress: event => {
+            if (controller.signal.aborted || !(typeof progressToken === "string" || Number.isInteger(progressToken))) return;
+            if (!Number.isFinite(event.progress) || event.progress <= progress) return;
+            progress = event.progress;
+            notify({ jsonrpc: "2.0", method: "notifications/progress", params: { progressToken, ...event } });
+          } };
           try {
-            const result = await dispatch(tool, params.arguments ?? {});
+            const pending = queue.then(() => {
+              if (controller.signal.aborted) throw new Error("Analysis cancelled");
+              return dispatch(tool, params.arguments ?? {}, runtime);
+            });
+            queue = pending.catch(() => {});
+            const result = await pending;
+            if (controller.signal.aborted) return null;
             const fileErrors = [...(Array.isArray(result?.files) ? result.files : []), ...(Array.isArray(result?.images) ? result.images : [])]
               .some((item) => item?.error !== undefined);
-            return respond({ ...textResult(result), isError: fileErrors || (tool.name === "pcr_verify" && result.exitCode !== 0) });
+            return respond({ ...textResult(result), isError: Boolean(result?.error) || fileErrors || Boolean(result?.review?.error) || (tool.name === "pcr_verify" && result.exitCode !== 0) });
           } catch (err) {
+            if (controller.signal.aborted) return null;
             return respond({ ...textResult(err.provenance ? {error: err.message, provenance: err.provenance} : `wisplab tool error / 工具错误：${err.message}`), isError: true });
+          } finally {
+            active.delete(msg.id);
           }
         }
         default:
@@ -262,6 +354,8 @@ export function createMcpHandler({ cfg, engine = lib }) {
       return error(-32603, err.message);
     }
   };
+  handleMessage.cancelAll = () => { for (const controller of active.values()) controller.abort(); };
+  return handleMessage;
 }
 
 export async function startServer() {
@@ -269,13 +363,26 @@ export async function startServer() {
   if (args.length && (args.length !== 2 || args[0] !== "--config" || args[1].startsWith("--")))
     throw new Error("Usage: node mcp-server.mjs [--config path]");
   const cfg = lib.config(args[1]);
-  const handle = createMcpHandler({ cfg });
-  // Await each call: IHC shares a configured Vite port. Draining EOF also preserves pending results.
-  for await (const line of createInterface({ input: process.stdin, crlfDelay: Infinity })) {
+  const write = message => process.stdout.write(`${JSON.stringify(message)}\n`);
+  const handle = createMcpHandler({ cfg, notify: write });
+  const pending = new Set();
+  const input = createInterface({ input: process.stdin, crlfDelay: Infinity });
+  const stop = () => { handle.cancelAll(); input.close(); process.stdin.pause(); };
+  process.once("SIGINT", stop);
+  process.once("SIGTERM", stop);
+  process.stdout.on("error", stop);
+  // Analysis is serialized by the handler, while ping/cancel continue to be read.
+  // EOF drains outstanding work; it is not a cancellation request.
+  for await (const line of input) {
     if (!line.trim()) continue;
-    const response = await handle(line);
-    if (response) process.stdout.write(`${JSON.stringify(response)}\n`);
+    const task = handle(line).then(response => { if (response) write(response); });
+    pending.add(task);
+    task.finally(() => pending.delete(task));
   }
+  await Promise.all(pending);
+  process.removeListener("SIGINT", stop);
+  process.removeListener("SIGTERM", stop);
+  process.stdout.removeListener("error", stop);
 }
 
 if (process.argv[1] && existsSync(process.argv[1]) && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))) {
