@@ -2,9 +2,9 @@
 name: wisplab-qpcr-analysis
 description: >-
   Analyze qPCR data tables with the pcr-workbench engine: replicate pooling,
-  multi-reference-gene normalization, ΔΔCt (Livak) and Pfaffl
-  efficiency-corrected fold change, NTC contamination report, group statistics
-  (Welch t, ANOVA + Dunnett). Use whenever the user gives you a qPCR export
+  single-reference normalization (multiple references optional), ΔΔCt (Livak)
+  and Pfaffl efficiency-corrected fold change, NTC contamination reports,
+  biological-group Welch/Holm and legacy well-level Welch/ANOVA + Dunnett. Use whenever the user gives you a qPCR export
   (QuantStudio/CFX/LightCycler CSV, 仪器导出表格) or asks about 相对定量/ΔΔCt/
   2^-ΔΔCt/Pfaffl/效率校正/内参/对照孔/NTC/熔解QC/组间统计/显著性 — even without
   saying "WispLab". You (the agent) construct and run the wisplab pcr command
@@ -31,7 +31,7 @@ The upstream importer supports CSV/TXT/TSV (UTF-8/GBK), Excel (XLSX/XLS/XLSM/XLS
 Establish exact reference-gene and control-sample names, and how technical/biological replicates are encoded, from existing context. Ask only for missing essentials. Do not treat automatically chosen defaults as a user-confirmed design.
 
 ```sh
-wisplab pcr /path/to/plate.csv --ref GAPDH,ACTB --control C1,C2
+wisplab pcr /path/to/plate.csv --ref GAPDH --control C1,C2
 wisplab pcr /path/to/plate.csv --ref GAPDH --control C1 --eff "LDHA=92;GAPDH=99"
 ```
 
@@ -40,14 +40,23 @@ Efficiency inputs are percentages: 92 means 92%, not an amplification factor; 10
 
 ## 结果解读 / Interpreting results
 
-读取 `files[].results`，并核对 `refGenesUsed`、`controlSamples`、`effMode`、`warnings`、`ntcReport` 与逐文件 `error`。展示样本、基因、`foldChange`、适用的 p 值及 `statMethod`；保留 `null`，不把缺失统计量写成不显著。
-Read `files[].results` and check `refGenesUsed`, `controlSamples`, `effMode`, `warnings`, `ntcReport`, and per-file `error`. Report sample, gene, `foldChange`, applicable p-values, and `statMethod`. Preserve `null`; do not interpret unavailable statistics as nonsignificance.
+优先读取 `files[].primaryAnalysis`，先检查 `kind`、`statisticalUnit`、`status` 与 `error`，再读取 `summaries` 和 `comparisons`。同时核对 `refGenesUsed`、`controlSamples`、`effMode`、`warnings`、`qcReport`、`ntcReport` 与逐文件 `error`。旧 `results` 保留用于逐孔诊断，不是生物学分组的默认报告入口。
+Read `files[].primaryAnalysis` first: check `kind`, `statisticalUnit`, `status` and `error` before using `summaries` and `comparisons`. Also inspect `refGenesUsed`, `controlSamples`, `effMode`, `warnings`, `qcReport`, `ntcReport` and per-file `error`. Retained legacy `results` are secondary well-level diagnostics, not the default biological-group report.
 
-`pValue` 的含义由 `statMethod` 决定：ANOVA 分支是总体检验，`pAdjusted` 才是相对对照的 Dunnett 校正结果；Welch 分支报告相应比较。效率校正影响 fold change，不应自行声称所有统计也自动改用效率校正后的表达量。
-Interpret `pValue` according to `statMethod`: under ANOVA it is the omnibus test, while `pAdjusted` is the Dunnett-adjusted comparison to control; the Welch branch reports its comparison. Efficiency correction affects fold change; do not claim all tests automatically operate on efficiency-corrected expression.
+| 主结果 / Primary result | 解读 / Interpretation |
+| --- | --- |
+| `kind: biological-groups`, `statisticalUnit: biological-sample`, `status: success` | 报告组别、靶标、生物学 n、组间 fold change、Welch p 与 Holm 校正 p。技术孔不能增加生物学 n。 / Report group, target, biological n, group fold change, Welch p and Holm-adjusted p; technical wells do not increase biological n. |
+| `kind: well-level`, `statisticalUnit: well`, `status: success` | 按主结果中的逐孔统计方法解读；不称为生物学组间推断。 / Interpret the stated well-level methods; do not present them as biological-group inference. |
+| `status: error` | 报告错误及仍可用的 QC/NTC 诊断，不报告失败分析的统计结论。 / Report the error and available QC/NTC diagnostics, not a failed analysis's statistical conclusions. |
 
-如实报告内参缺失、NTC 和重复质量警告。当前桥接接口不提供上游界面的交互式分组或全部上游设置；可配置逐孔 QC、复孔 SD 报告及显式行排除，默认不自动剔除；只启用部分规则不代表全部质控通过。不要把技术重复当独立生物学重复来扩大结论。
-Report missing references, NTC findings, and replicate-quality warnings accurately. The bridge does not expose interactive grouping or every upstream setting; Configurable per-well QC, replicate-SD reporting and explicit exclusions are available; report-only is the default. Do not treat technical replicates as independent biological replicates to broaden conclusions.
+若用户请求了 `biologicalDesign`，而分组失败，`primaryAnalysis` 必须保持 `kind: biological-groups` 和错误状态。**绝不能回退到旧 `results`，把逐孔 p 值当作分组 p 值。** 输出缺少 `primaryAnalysis` 时应核对版本和实际分析模式，不猜测统计单位。
+If `biologicalDesign` was requested but failed, the primary result must remain `kind: biological-groups` with error status. **Never fall back to legacy `results` and present well-level p-values as group inference.** If `primaryAnalysis` is absent, verify the version and actual analysis mode rather than guessing the statistical unit.
+
+生物学分组的 Welch 检验使用每个生物学样本的 log2 归一化表达量（效率均为 100% 时等于 −ΔCt）；Holm 校正覆盖该文件预先计划的靶标×处理组比较。旧逐孔统计中的 `pValue` 由 `statMethod` 决定：ANOVA 分支为总体检验，`pAdjusted` 为相对对照的 Dunnett 校正；不能与分组 Welch/Holm 混用。保留 `null`，不把缺失统计量写成“不显著”；极小非零 p 值使用科学计数法，不按显示精度写成 0。
+Biological-group Welch tests use each sample's log2 normalized expression (−ΔCt when all efficiencies are 100%); Holm covers the planned target × treatment comparisons in that file. In legacy well-level statistics, interpret `pValue` according to `statMethod`: ANOVA is omnibus and `pAdjusted` is the Dunnett comparison to control. Do not mix those with group Welch/Holm. Preserve null values rather than calling unavailable tests nonsignificant. Display very small nonzero p-values in scientific notation instead of rounding them to 0.
+
+如实报告内参缺失、NTC 和重复质量警告。可配置逐孔 QC、复孔 SD 报告及显式行排除，默认不自动剔除；只启用部分规则不代表全部质控通过。显式生物学分组支持单文件、非配对设计；不能把技术重复当独立生物学重复。
+Report missing references, NTC findings and replicate-quality warnings accurately. Per-well QC, replicate-SD reporting and explicit exclusions are configurable; report-only is the default and partial QC is not a complete pass. Explicit biological grouping supports a single file and an unpaired design; technical replicates are not independent biological replicates.
 
 ## 验证 / Verification
 
@@ -58,5 +67,7 @@ Record inputs, parameters, and engine revisions. `verify-pcr /path/to/validation
 Computation is local; the AI client may send tool results or attachments to its model provider.
 
 质控参数与排除规则 / QC and exclusion policy: [说明 / Guide](../../docs/qpcr-qc.md).
+
+生物学分组 / Biological groups: [说明 / Guide](../../docs/qpcr-groups.md).
 
 单个内参即可进行 qPCR 分析（例如 `--ref GAPDH`）；多个内参为可选功能。 / One reference gene is sufficient (for example `--ref GAPDH`); multiple reference genes are optional.

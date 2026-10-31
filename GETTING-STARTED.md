@@ -4,6 +4,8 @@
 
 本指南安装本地 CLI/MCP 桥和三个分析引擎。你可以直接运行命令，也可以让支持终端或 MCP 的 AI 客户端代为调用。
 
+如果已有 IHC 分析 JSON 和参考 JSON，只需本仓库代码与 Node.js，即可运行 `node cli.mjs ihc-validate result.json reference.json`。该离线比较不读取引擎配置，也不启动分析引擎或浏览器。
+
 ## 1. 准备环境
 
 需要 Git、Node.js ≥ 22.12、npm，以及 macOS、Linux 或 Windows WSL 环境；具体引擎的要求以各自仓库为准。先运行 `node --version`。下面假定四个仓库位于同一个父目录；命令中的路径和样本名都需要替换为自己的值。
@@ -73,9 +75,11 @@ wisplab pcr /path/to/plate.csv --ref GAPDH --control NC
 | WB | 原图 PNG/TIFF、泳道数、亮/暗信号、对照泳道；多面板图还需 `--strip y,h,x0,x1` | `images[].lanes[]`：`net`、`ratio`、`warnings` |
 | IHC | 染色预设、图像质量；H-DAB 可加 `--control-tif negative.tif` | `files[].overall`、`thresholdUsed`、`warnings`、`qc` |
 | IF | 图像的红/绿通道分别代表什么；当前 CLI 不支持更换通道 | `files[].coloc`：Pearson、Manders、阈值 |
-| qPCR | `Target` 中的内参名称、`Sample` 中的对照名称、实验重复含义 | `files[].results`、`refGenesUsed`、`controlSamples`、`warnings`、`ntcReport` |
+| qPCR | `Target` 中的内参名称、`Sample` 中的对照名称、实验重复含义 | `files[].primaryAnalysis`（先核对 `status`、`statisticalUnit`）、`refGenesUsed`、`controlSamples`、`warnings`、`ntcReport` |
 
-qPCR 复用上游导入器：支持 CSV/TXT/TSV（UTF-8/GBK）、Excel（XLSX/XLS/XLSM/XLSB）和 RDML。Excel 只使用第一个工作表；多工作表输入会有警告。RDML 中声明的效率会被应用，显式 `--eff` 优先。效率以百分数输入，例如 `--eff "LDHA=92;GAPDH=99"` 表示 92% 和 99%，不是每周期扩增倍数。CLI 不提供交互式分组或全部上游设置；Cq 上下限、绝对偏差和复孔 SD 参数当前未启用，不能将未报告这些问题解读为 QC 全部通过。
+qPCR 复用上游导入器：支持 CSV/TXT/TSV（UTF-8/GBK）、Excel（XLSX/XLS/XLSM/XLSB）和 RDML。Excel 只使用第一个工作表；多工作表输入会有警告。RDML 中声明的效率会被应用，显式 `--eff` 优先。效率以百分数输入，例如 `--eff "LDHA=92;GAPDH=99"` 表示 92% 和 99%，不是每周期扩增倍数。可配置 Cq 上下限、绝对偏差、z 分数、复孔 SD 报告及显式行排除，默认只报告、不自动剔除；只启用部分规则不代表全部 QC 通过。显式生物学分组使用 `--groups` 与 `--control-group`，详见[分组说明](docs/qpcr-groups.md)；CLI 不提供交互式分组或全部上游设置。
+
+单个内参即可分析（例如 `--ref GAPDH`），多内参为可选功能。优先读取每个文件的 `primaryAnalysis`：`kind: biological-groups` 表示用户声明的生物学样本分组，`kind: well-level` 表示逐孔统计。先检查 `status` 和 `error`，再读取 `summaries`、`comparisons`。请求生物学分组后若出现错误，主结果仍是生物学分组的错误状态；不能用保留的 `results` 逐孔统计代替。QC/NTC 诊断可单独复核。
 
 逐文件分析错误会保留在 JSON 中，同时使 CLI 退出码为 1，MCP 返回 `isError: true`。即使运行成功，也要检查每个文件的 `warnings`。图像选择、重复设计和阈值不合适时，能够返回数值也不代表结果有效。WB 对照泳道净信号为正时其自身比值应为 1；净信号不为正时比值可能为 `null`。IHC 的核强度 H-score 需结合分割结果复核。
 
@@ -90,7 +94,7 @@ cp -Rn skills/wisplab-* ~/.agents/skills/
 
 此命令不覆盖同名已有文件；更新已有技能时需自行比较并替换。重新加载客户端后，可直接给出文件路径和分析要求，例如：
 
-> 分析 /path/to/plate.csv，GAPDH 和 ACTB 做内参，C1、C2 是对照；请报告相对表达、所用统计方法和所有警告。
+> 分析 /path/to/plate.csv，GAPDH 做内参，C1、C2 是对照；请报告相对表达、所用统计方法和所有警告。
 
 > 定量 /path/to/blot.png 的目标面板，6 个泳道，最左的 marker 排除，泳道 2 为对照，使用 rolling ball 50。
 
@@ -119,7 +123,7 @@ AI 必须使用实际输出，不应自行编造缺少的对照、内参、数�
 
 | 问题 | 处理方式 |
 | --- | --- |
-| 配置找不到或路径错误 | 使用绝对 `--config`；运行 `doctor` 检查最终路径 |
+| 配置找不到或路径错误 | 分析命令使用绝对 `--config`；运行 `doctor` 检查最终路径。离线 `ihc-validate` 不需要配置 |
 | 缺少 `tsx`、Vite 或 Chromium | 在对应引擎仓库安装锁定依赖；IHC 再执行 `npx playwright install chromium` |
 | IHC/IF 端口被占用 | 修改配置中的 `ihc.devPort`；程序不会复用未知的现有服务 |
 | MCP 拒绝路径 | 将数据所在目录加入 `allowPaths`；检查符号链接实际目标 |

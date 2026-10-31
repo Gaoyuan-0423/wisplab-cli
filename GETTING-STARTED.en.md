@@ -4,6 +4,8 @@
 
 This guide installs the local CLI/MCP bridge and its three analysis engines. You can run commands directly or use an AI client with terminal or MCP support.
 
+If you already have an IHC result JSON and reference JSON, this repository and Node.js are enough to run `node cli.mjs ihc-validate result.json reference.json`. This offline comparison reads no engine configuration and starts no analysis engine or browser.
+
 ## 1. Prepare the environment
 
 You need Git, Node.js ≥ 22.12, npm, and macOS, Linux, or Windows WSL; check each engine repository for its specific requirements. Start with `node --version`. The examples below place all four repositories under one parent directory. Replace example paths and sample names with your own.
@@ -73,9 +75,11 @@ Without `npm link`, run from the CLI directory and replace `wisplab` with `node 
 | WB | Original PNG/TIFF, lane count, dark/light signal, control lane; for multiple panels, also `--strip y,h,x0,x1` | `images[].lanes[]`: `net`, `ratio`, `warnings` |
 | IHC | Stain preset and image quality; H-DAB may use `--control-tif negative.tif` | `files[].overall`, `thresholdUsed`, `warnings`, `qc` |
 | IF | What the red/green channels represent; this CLI cannot change channels | `files[].coloc`: Pearson, Manders, thresholds |
-| qPCR | Reference names from `Target`, control names from `Sample`, and the meaning of experimental replicates | `files[].results`, `refGenesUsed`, `controlSamples`, `warnings`, `ntcReport` |
+| qPCR | Reference names from `Target`, control names from `Sample`, and the meaning of experimental replicates | `files[].primaryAnalysis` (check `status` and `statisticalUnit` first), `refGenesUsed`, `controlSamples`, `warnings`, `ntcReport` |
 
-qPCR reuses the upstream importer for CSV/TXT/TSV (UTF-8/GBK), Excel (XLSX/XLS/XLSM/XLSB), and RDML. Only the first Excel worksheet is used, with a warning for multiple worksheets. RDML-declared efficiencies are applied; explicit `--eff` values take precedence. Enter efficiencies as percentages: `--eff "LDHA=92;GAPDH=99"` means 92% and 99%, not amplification factors per cycle. The CLI exposes no interactive grouping or every upstream setting. Configurable per-well QC, replicate-SD reporting and explicit exclusions are available; report-only is the default and a subset of checks is not a complete QC pass.
+qPCR reuses the upstream importer for CSV/TXT/TSV (UTF-8/GBK), Excel (XLSX/XLS/XLSM/XLSB), and RDML. Only the first Excel worksheet is used, with a warning for multiple worksheets. RDML-declared efficiencies are applied; explicit `--eff` values take precedence. Enter efficiencies as percentages: `--eff "LDHA=92;GAPDH=99"` means 92% and 99%, not amplification factors per cycle. Cq limits, absolute deviation, z-score, replicate-SD reporting and explicit exclusions are configurable; report-only is the default and a subset of checks is not a complete QC pass. Explicit biological grouping uses `--groups` and `--control-group`; see the [grouping guide](docs/qpcr-groups.md). Interactive grouping and some upstream settings are not exposed.
+
+One reference gene is sufficient (for example `--ref GAPDH`); multiple references are optional. Read each file's `primaryAnalysis` first: `kind: biological-groups` uses explicitly declared biological samples, while `kind: well-level` uses wells. Check `status` and `error` before reading `summaries` and `comparisons`. If a requested biological analysis fails, the primary result remains a biological-group error; never substitute retained legacy `results` as biological inference. QC/NTC diagnostics can still be reviewed separately.
 
 Per-file analysis errors remain in JSON and set CLI exit code 1 or MCP `isError: true`. Inspect each file's `warnings` even after success. A numeric result does not establish validity if image selection, replicate design, or thresholds are unsuitable. A WB control lane with positive net signal should have a ratio of 1 to itself; ratios may be `null` when control signal is nonpositive. Review IHC nuclear-intensity H-score alongside segmentation quality.
 
@@ -90,7 +94,7 @@ cp -Rn skills/wisplab-* ~/.agents/skills/
 
 This does not overwrite existing files with the same names. Compare and replace existing skills when updating. Reload your client, then provide a file path and analysis requirements, for example:
 
-> Analyze /path/to/plate.csv using GAPDH and ACTB as references and C1/C2 as controls. Report fold changes, the statistical methods used, and all warnings.
+> Analyze /path/to/plate.csv using GAPDH as the reference and C1/C2 as controls. Report fold changes, the statistical methods used, and all warnings.
 
 > Quantify the target panel in /path/to/blot.png: six lanes, exclude the marker on the left, use lane 2 as control, and rolling-ball radius 50.
 
@@ -119,7 +123,7 @@ Computation is local, but an AI client may transmit prompts, results, or attachm
 
 | Problem | Action |
 | --- | --- |
-| Missing config or incorrect paths | Pass an absolute `--config`; inspect resolved paths with `doctor` |
+| Missing config or incorrect paths | For analysis commands, pass an absolute `--config` and inspect paths with `doctor`. Offline `ihc-validate` needs no config |
 | Missing `tsx`, Vite, or Chromium | Install locked dependencies in the corresponding engine repository; for IHC also run `npx playwright install chromium` |
 | IHC/IF port occupied | Change `ihc.devPort`; the program does not reuse an unknown existing service |
 | MCP rejects a path | Add the data directory to `allowPaths`; check symbolic-link targets |
