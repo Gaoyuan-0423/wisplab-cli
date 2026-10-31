@@ -2,7 +2,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -39,6 +39,21 @@ export function loadConfig(configPath) {
 let cachedCfg = null;
 export function config(overridePath) {
   if (!cachedCfg || overridePath) cachedCfg = loadConfig(overridePath);
+  return cachedCfg;
+}
+
+// Workers install the already resolved parent configuration. path identifies its source;
+// it is never read again, so edits/deletion cannot change a running job's engine.
+export function installConfigSnapshot(snapshot) {
+  const cfg = structuredClone(snapshot);
+  const absolute = value => typeof value === "string" && isAbsolute(value);
+  if (!cfg || typeof cfg !== "object" || Array.isArray(cfg) || !absolute(cfg.path) ||
+      !cfg.repos || typeof cfg.repos !== "object" || Array.isArray(cfg.repos) ||
+      Object.values(cfg.repos).some(value => !absolute(value)) ||
+      !Array.isArray(cfg.allowPaths) || cfg.allowPaths.some(value => !absolute(value)) ||
+      !Number.isInteger(cfg.ihc?.devPort) || cfg.ihc.devPort < 1 || cfg.ihc.devPort > 65535)
+    throw new Error("Invalid resolved configuration snapshot");
+  cachedCfg = cfg;
   return cachedCfg;
 }
 
@@ -143,17 +158,18 @@ export function runVerifyPcr(dir) {
   return { exitCode: c.status ?? 1, output: (c.stdout || "") + (c.stderr || "") };
 }
 
-export async function runIhc({ files, coloc = false, profile = "h_dab", controlTif = null, runtime = {}, roiManifest = null, channels = null, mpp = null, includeNuclei = false, reviewDir = null }) {
+export async function runIhc({ files, coloc = false, profile = "h_dab", controlTif = null, runtime = {}, roiManifest = null, channels = null, mpp = null, includeNuclei = false, reviewDir = null }, resolvedConfig = null) {
   validateFiles(files);
   if (!["h_dab", "h_eosin", "masson", "if_coloc"].includes(profile)) throw new Error("Unsupported stain profile");
   if (controlTif && (coloc || profile !== "h_dab")) throw new Error("对照片标定仅支持 H-DAB / Control calibration supports H-DAB only");
   runtime = normalizeRuntime(runtime);
   const imageOptions = normalizeImageOptions({ files, coloc, roiManifest, channels, mpp, includeNuclei, reviewDir });
-  const parameters = { coloc, profile: coloc ? "if_coloc" : profile, controlTif: controlTif ? "input-with-role-control" : null, devPort: config().ihc.devPort, ...imageOptions, reviewDir: imageOptions.reviewDir ? "local-review-export" : null };
+  const cfg = structuredClone(resolvedConfig ?? config());
+  const parameters = { coloc, profile: coloc ? "if_coloc" : profile, controlTif: controlTif ? "input-with-role-control" : null, devPort: cfg.ihc.devPort, ...imageOptions, reviewDir: imageOptions.reviewDir ? "local-review-export" : null };
   const inputs = files.map(path => ({path}));
   if (controlTif) inputs.push({path: controlTif, role: "control"});
-  const result = await trackAnalysis({ analysis: coloc ? "if" : "ihc", engineDir: repo("ihc"), bridgeDir: CLI_DIR, parameters, inputs },
-    () => runIhcBatch({files, coloc, profile, controlTif, ...imageOptions}, config(), runtime));
+  const result = await trackAnalysis({ analysis: coloc ? "if" : "ihc", engineDir: repo("ihc", cfg.repos.ihc), bridgeDir: CLI_DIR, parameters, inputs },
+    () => runIhcBatch({files, coloc, profile, controlTif, ...imageOptions}, cfg, runtime));
   if (result.error) {
     result.provenance.status = result.files.some(file => !file.error) ? "partial-error" : "error";
     result.provenance.error = result.error;

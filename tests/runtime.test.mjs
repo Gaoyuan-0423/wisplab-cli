@@ -32,18 +32,20 @@ async function fixture(t) {
   for (const file of ['runtime-controls.mjs', 'runtime-worker.mjs', 'mcp-server.mjs', 'image-review.mjs', 'pcr-groups.mjs', 'pcr-inference.mjs', 'pcr-import.mjs']) copyFileSync(new URL(`../${file}`, import.meta.url), join(dir, file));
   writeFileSync(join(dir, 'package.json'), '{"type":"module","version":"test"}');
   const port = await unusedPort();
-  const cfg = { path: join(dir, 'config.json'), allowPaths: [dir], ihc: { devPort: port } };
+  const cfg = { path: join(dir, 'config.json'), repos: { ihc: dir, wb: dir, pcr: dir }, allowPaths: [dir], ihc: { devPort: port } };
   writeFileSync(cfg.path, JSON.stringify(cfg));
   writeFileSync(join(dir, 'lib.mjs'), `
     import {readFileSync,appendFileSync,writeFileSync} from 'node:fs';
     import {spawn} from 'node:child_process';
     import {join} from 'node:path';
     let cfg; export function config(path) { if(!cfg) appendFileSync(join(${JSON.stringify(dir)},'workspaces'),process.env.TMPDIR+'\\n'); return cfg ??= JSON.parse(readFileSync(path ?? ${JSON.stringify(cfg.path)})); }
+    export function installConfigSnapshot(snapshot) { appendFileSync(join(${JSON.stringify(dir)},'workspaces'),process.env.TMPDIR+'\\n'); cfg=structuredClone(snapshot); }
     export function runWb(args) {
       writeFileSync(join(${JSON.stringify(dir)},'wb-started'),'yes');
       if (args.files.some(file=>file.includes('slow'))) while(true) {}
-      return {images:args.files.map(file=>({file,value:1}))};
+      return {images:args.files.map(file=>({file,value:1})),config:config()};
     }
+    export const runPcr=runWb, previewPcr=runWb;
     export async function runIhcEngine({files,onEvent,coloc=false,profile='h_dab'}) {
       const server=spawn(process.execPath,['-e',"require('node:net').createServer().listen("+config().ihc.devPort+",'127.0.0.1',()=>console.log('ready'))"],{detached:true,stdio:['ignore','pipe','ignore']});
       appendFileSync(join(${JSON.stringify(dir)},'pids'),server.pid+'\\n');
@@ -54,7 +56,7 @@ async function fixture(t) {
         for(const file of files) {
           onEvent({kind:'file-start',file});
           if(file.includes('slow')) { writeFileSync(join(${JSON.stringify(dir)},'ihc-started'),'yes'); await new Promise(()=>{}); }
-          const result={file,value:1};out.push(result);onEvent({kind:'file-result',result});
+          const result={file,value:1,config:config()};out.push(result);onEvent({kind:'file-result',result});
         }
         if(files.some(file=>file.includes('cleanup'))) await new Promise(()=>{});
         return {files:out,coloc,profile,controlThreshold:null,controlImageName:null};
@@ -133,4 +135,21 @@ test('IHC cleanup deadline retains completed images but marks overall failure', 
   const result = await f.runtime.runIhcBatch({ files: ['cleanup.png'] }, f.cfg, { timeoutMs: 400, fileTimeoutMs: 2000 });
   assert.equal(result.files[0].value, 1);
   assert.match(result.error, /Batch timed out/);
+});
+
+
+test('IHC timeout restarts keep one config snapshot after source and caller mutation', { timeout: 10000 }, async t => {
+  for (const change of ['rewrite', 'delete']) {
+    const f = await fixture(t), expected = structuredClone(f.cfg);
+    const result = await f.runtime.runIhcBatch({ files: ['good-a.png', 'slow.png', 'good-c.png'], profile: 'h_dab' }, f.cfg,
+      { timeoutMs: 6000, fileTimeoutMs: 100, onProgress: event => {
+        if (event.progress !== 1) return;
+        f.cfg.ihc.devPort = 1; f.cfg.repos.ihc = '/invalid-engine';
+        if (change === 'delete') rmSync(f.cfg.path);
+        else writeFileSync(f.cfg.path, JSON.stringify(f.cfg));
+      } });
+    assert.match(result.files[1].error, /timed out/);
+    assert.deepEqual(result.files[0].config, expected);
+    assert.deepEqual(result.files[2].config, expected);
+  }
 });

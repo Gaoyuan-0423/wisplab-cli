@@ -23,7 +23,7 @@ export function cancellationError() { return failure('CANCELLED', 'Analysis canc
 // Every job owns a process group on macOS/Linux/WSL, including Vite, Chromium and tsx descendants.
 // Resolve only after the worker exits and forced cleanup has run, so the next job can reuse its port.
 export function runWorker({ operation, args, cfg, runtime = {}, onEvent = () => {} }) {
-  const controls = normalizeRuntime(runtime);
+  const controls = normalizeRuntime(runtime), configSnapshot = structuredClone(cfg);
   if (controls.signal?.aborted) return Promise.reject(cancellationError());
   return new Promise((resolve, reject) => {
     const workspace = mkdtempSync(join(tmpdir(), 'wisplab-job-'));
@@ -84,7 +84,7 @@ export function runWorker({ operation, args, cfg, runtime = {}, onEvent = () => 
       if (result === undefined && !workerError && !stopError) stop(new Error(`Analysis worker exited without a result: ${stderr.slice(-1000)}`));
       finish();
     });
-    child.send({ operation, args, configPath: cfg.path, runtime: { timeoutMs: controls.timeoutMs, fileTimeoutMs: controls.fileTimeoutMs } }, error => { if (error) stop(error); });
+    child.send({ operation, args, configSnapshot, runtime: { timeoutMs: controls.timeoutMs, fileTimeoutMs: controls.fileTimeoutMs } }, error => { if (error) stop(error); });
   });
 }
 
@@ -97,6 +97,8 @@ export async function runAnalysisJob(operation, args, cfg, runtime = {}) {
 }
 
 export async function runIhcBatch(args, cfg, runtime = {}) {
+  // Keep one identity across all worker restarts, including changes made by callers.
+  cfg = structuredClone(cfg);
   const controls = normalizeRuntime(runtime), started = Date.now(), files = [], total = args.files.length;
   let next = 0, controlThreshold = null, controlImageName = null, batchError = null;
   controls.onProgress?.({ progress: 0, total, message: 'Analysis started / 分析开始' });
