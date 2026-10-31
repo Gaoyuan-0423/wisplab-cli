@@ -6,6 +6,7 @@ import { dirname, join, resolve } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+import { runIhcBatch, normalizeRuntime } from "./runtime-controls.mjs";
 import { trackAnalysisSync, trackAnalysis } from "./provenance.mjs";
 import { readEngineLock, checkEngineRevision } from "./engine-lock.mjs";
 import { normalizeBiologicalDesign } from "./pcr-groups.mjs";
@@ -79,7 +80,7 @@ function positiveInteger(value, name) {
   if (!Number.isInteger(value) || value < 1) throw new Error(`${name} 必须是正整数 / must be a positive integer`);
 }
 
-export function runWb({ files, lanes = null, strip = null, bg = "local", radius = 50, signal = "dark", controlLane = 1 }) {
+export function runWb({ files, lanes = null, strip = null, bg = "local", radius = 50, signal = "dark", controlLane = 1, runtime = {} }) {
   validateFiles(files);
   if (lanes !== null) positiveInteger(lanes, "lanes");
   positiveInteger(radius, "radius");
@@ -94,10 +95,10 @@ export function runWb({ files, lanes = null, strip = null, bg = "local", radius 
     () => runRunner(engineDir, "wb-run.ts", {
       files: files.map(f => resolve(f)), lanes, strip,
       bg: bg === "rolling" ? {kind: "rolling-ball", radius} : {kind: "local"}, signal, controlLane,
-    }));
+    }, normalizeRuntime(runtime).timeoutMs));
 }
 
-export function runPcr({ files, refGenes = [], controlSamples = [], efficiencies = {}, qc = {}, qcMode = "report", excludeRows = [], biologicalDesign = null }) {
+export function runPcr({ files, refGenes = [], controlSamples = [], efficiencies = {}, qc = {}, qcMode = "report", excludeRows = [], biologicalDesign = null, runtime = {} }) {
   validateFiles(files);
   for (const [name, values] of Object.entries({ refGenes, controlSamples })) {
     if (!Array.isArray(values) || values.some((v) => typeof v !== "string" || !v.trim())) throw new Error(`${name}: expected nonempty gene/sample names`);
@@ -118,7 +119,7 @@ export function runPcr({ files, refGenes = [], controlSamples = [], efficiencies
   const parameters = { refGenes, controlSamples, efficiencies, biologicalDesign, ...normalizePcrOptions({ qc, qcMode, excludeRows }) };
   const engineDir = repo("pcr");
   return trackAnalysisSync({ analysis: "pcr", engineDir, bridgeDir: CLI_DIR, parameters, inputs: files.map(path => ({path})) },
-    () => runRunner(engineDir, "pcr-run.ts", { files: files.map(f => resolve(f)), ...parameters }));
+    () => runRunner(engineDir, "pcr-run.ts", { files: files.map(f => resolve(f)), ...parameters }, normalizeRuntime(runtime).timeoutMs));
 }
 
 export function runVerifyPcr(dir) {
@@ -132,18 +133,24 @@ export function runVerifyPcr(dir) {
   return { exitCode: c.status ?? 1, output: (c.stdout || "") + (c.stderr || "") };
 }
 
-export async function runIhc({ files, coloc = false, profile = "h_dab", controlTif = null }) {
+export async function runIhc({ files, coloc = false, profile = "h_dab", controlTif = null, runtime = {} }) {
   validateFiles(files);
   if (!["h_dab", "h_eosin", "masson", "if_coloc"].includes(profile)) throw new Error("Unsupported stain profile");
   if (controlTif && (coloc || profile !== "h_dab")) throw new Error("对照片标定仅支持 H-DAB / Control calibration supports H-DAB only");
+  runtime = normalizeRuntime(runtime);
   const parameters = { coloc, profile: coloc ? "if_coloc" : profile, controlTif: controlTif ? "input-with-role-control" : null, devPort: config().ihc.devPort };
   const inputs = files.map(path => ({path}));
   if (controlTif) inputs.push({path: controlTif, role: "control"});
-  return trackAnalysis({ analysis: coloc ? "if" : "ihc", engineDir: repo("ihc"), bridgeDir: CLI_DIR, parameters, inputs },
-    () => runIhcEngine({files, coloc, profile, controlTif}));
+  const result = await trackAnalysis({ analysis: coloc ? "if" : "ihc", engineDir: repo("ihc"), bridgeDir: CLI_DIR, parameters, inputs },
+    () => runIhcBatch({files, coloc, profile, controlTif}, config(), runtime));
+  if (result.error) {
+    result.provenance.status = result.files.some(file => !file.error) ? "partial-error" : "error";
+    result.provenance.error = result.error;
+  }
+  return result;
 }
 
-async function runIhcEngine({ files, coloc, profile, controlTif }) {
+export async function runIhcEngine({ files, coloc, profile, controlTif, onEvent = () => {} }) {
   validateFiles(files);
   if (!["h_dab", "h_eosin", "masson", "if_coloc"].includes(profile)) throw new Error("Unsupported stain profile");
   if (controlTif && (coloc || profile !== "h_dab")) throw new Error("对照片标定仅支持 H-DAB / Control calibration supports H-DAB only");
@@ -167,7 +174,7 @@ async function runIhcEngine({ files, coloc, profile, controlTif }) {
   vite.stderr.on("data", capture);
   vite.on("error", (error) => { startupError = error; });
   vite.on("exit", (code, signal) => { startupError ??= new Error(`Vite exited before/during analysis (${code ?? signal}); check ihc.devPort: ${startupLog.slice(-600)}`); });
-  let browser;
+  let browser, browserServer;
   try {
     let up = false;
     for (let i = 0; i < 30 && !up; i += 1) {
@@ -178,7 +185,9 @@ async function runIhcEngine({ files, coloc, profile, controlTif }) {
     }
     if (startupError) throw startupError;
     if (!up) throw new Error("vite dev 未能在 15 秒内启动");
-    browser = await chromium.launch({ args: ["--no-proxy-server"] });
+    browserServer = await chromium.launchServer({ args: ["--no-proxy-server"] });
+    onEvent({ kind: "resource", pid: browserServer.process().pid });
+    browser = await chromium.connect(browserServer.wsEndpoint());
     const page = await browser.newPage();
     await page.goto(app, { waitUntil: "domcontentloaded" });
     if (startupError) throw startupError;
@@ -187,6 +196,7 @@ async function runIhcEngine({ files, coloc, profile, controlTif }) {
     let controlName = null;
     if (controlTif) {
       controlName = String(controlTif).split("/").pop();
+      onEvent({kind: "file-start", role: "control", file: controlName});
       controlThreshold = await page.evaluate(async ({ b64, name }) => {
         const { decodeImageFile } = await import("/src/core/image/decode.ts");
         const { controlThresholdFromChannel } = await import("/src/core/analysis/calibrate.ts");
@@ -204,9 +214,11 @@ async function runIhcEngine({ files, coloc, profile, controlTif }) {
       }, { b64: readFileSync(controlTif).toString("base64"), name: controlName });
     }
 
+    onEvent({kind: "calibration", controlThreshold, controlImageName: controlName});
     const out = [];
     for (const path of files) {
       const name = String(path).split("/").pop();
+      onEvent({kind: "file-start", role: "input", file: name});
       try {
         const b64 = readFileSync(path).toString("base64");
         const res = await page.evaluate(async ({ b64, name, coloc, profile, controlThreshold, controlName }) => {
@@ -240,10 +252,12 @@ async function runIhcEngine({ files, coloc, profile, controlTif }) {
       } catch (error) {
         out.push({ file: name, error: String(error?.message ?? error) });
       }
+      onEvent({kind: "file-result", result: out.at(-1)});
     }
     return { files: out, coloc, profile: coloc ? "if_coloc" : profile, controlThreshold, controlImageName: controlName };
   } finally {
     if (browser) await browser.close().catch(() => {});
+    if (browserServer) await browserServer.close().catch(() => {});
     if (vite.pid && vite.exitCode === null && vite.signalCode === null && !vite.killed) {
       await new Promise((done) => {
         const timer = setTimeout(() => { vite.kill("SIGKILL"); }, 2000);

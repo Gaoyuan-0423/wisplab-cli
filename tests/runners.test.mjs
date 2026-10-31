@@ -29,7 +29,7 @@ function fixture(t, kind, modules) {
 function wbFixture(t) {
   const f = fixture(t, 'wb', {
     'real/pixels': `
-      export function decodeRaster() { return { width: 20, height: 20, bitDepth: 8, pixels: new Float64Array(400) }; }
+      export function decodeRaster(bytes, name) { if (name.includes('corrupt')) throw new Error('corrupt image'); return { width: 20, height: 20, bitDepth: 8, pixels: new Float64Array(400) }; }
       export function proposeRegions() { return [1, 2].map(lane => ({ lane, source: 'automatic', band: {x: 1, y: 1, width: 1, height: 1}, background: {x: 1, y: 2, width: 1, height: 1} })); }
       export function measureRegion(raster, region) { return { bandSum: 1, backgroundMean: 2, net: 10 * region.lane, warnings: region.source === 'automatic' ? ['CANDIDATES_REQUIRE_REVIEW'] : [] }; }
     `,
@@ -54,17 +54,17 @@ test('WB crop preserves automatic-review warnings and maps image coordinates', t
 test('WB missing control fails instead of silently using lane one', t => {
   const f = wbFixture(t);
   const r = f.run({ ...f.payload, controlLane: 3 });
-  assert.notEqual(r.status, 0);
-  assert.match(r.stderr, /Control lane not found/);
-  assert.equal(r.data, undefined);
+  assert.equal(r.status, 0);
+  assert.match(r.data.images[0].error, /Control lane not found/);
+  assert.equal(r.data.images[0].lanes, undefined);
 });
 
 test('WB rejects malformed, empty and out-of-image strips', t => {
   const f = wbFixture(t);
   for (const strip of ['0,10,0', '0,10,,20', '0.5,10,0,20', '0,0,0,20', '0,10,5,5', '15,10,0,20', '0,10,0,21', '-1,10,0,20']) {
     const r = f.run({ ...f.payload, strip });
-    assert.notEqual(r.status, 0, strip);
-    assert.match(r.stderr, /strip/);
+    assert.equal(r.status, 0, strip);
+    assert.match(r.data.images[0].error, /strip/);
   }
 });
 
@@ -143,4 +143,19 @@ test('PCR parse failures retain the requested primary analysis kind', t => {
   const file=f.run({files:[join(f.dir,'missing.csv')],biologicalDesign:{samples:{C:'C',S:'S'},controlGroup:'C'}}).data.files[0];
   assert.match(file.error,/ENOENT/);assert.equal(file.primaryAnalysis.kind,'biological-groups');
   assert.equal(file.primaryAnalysis.status,'error');assert.deepEqual(file.primaryAnalysis.summaries,[]);
+});
+
+
+test('WB preserves good-bad-good results across missing and corrupt images', t => {
+  const f = wbFixture(t);
+  const corrupt = join(f.dir, 'corrupt.png'); writeFileSync(corrupt, 'bad');
+  const good = f.payload.files[0];
+  for (const bad of [join(f.dir, 'missing.png'), corrupt]) {
+    const r = f.run({ ...f.payload, files: [good, bad, good] });
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.data.images.length, 3);
+    assert.deepEqual(r.data.images[0].lanes.map(l => l.ratio), [1, 2]);
+    assert.match(r.data.images[1].error, /ENOENT|corrupt/);
+    assert.deepEqual(r.data.images[2].lanes, r.data.images[0].lanes);
+  }
 });

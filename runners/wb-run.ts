@@ -14,51 +14,55 @@ const images = [];
 
 for (const path of payload.files) {
   const name = path.split("/").pop() ?? path;
-  const raster = decodeRaster(new Uint8Array(readFileSync(path)), name);
-  const strip = parseStrip(payload.strip, raster);
-  const source = strip ?? raster;
-  let regions = null;
-  let laneCount = payload.lanes ?? null;
-  let lastError = "";
-  if (laneCount) {
-    try { regions = proposeRegions(source, laneCount, signal); } catch (e) { lastError = String(e.message ?? e); regions = null; }
-  } else {
-    for (const n of [6, 7, 5, 8, 4, 3]) {
-      try {
-        const r = proposeRegions(source, n, signal);
-        if (r.length >= 2) { regions = r; laneCount = n; break; }
-      } catch (e) { lastError = String(e.message ?? e); }
+  try {
+    const raster = decodeRaster(new Uint8Array(readFileSync(path)), name);
+    const strip = parseStrip(payload.strip, raster);
+    const source = strip ?? raster;
+    let regions = null;
+    let laneCount = payload.lanes ?? null;
+    let lastError = "";
+    if (laneCount) {
+      try { regions = proposeRegions(source, laneCount, signal); } catch (e) { lastError = String(e.message ?? e); regions = null; }
+    } else {
+      for (const n of [6, 7, 5, 8, 4, 3]) {
+        try {
+          const r = proposeRegions(source, n, signal);
+          if (r.length >= 2) { regions = r; laneCount = n; break; }
+        } catch (e) { lastError = String(e.message ?? e); }
+      }
     }
+    if (!regions || regions.length === 0) {
+      images.push({ file: name, width: raster.width, height: raster.height, bitDepth: raster.bitDepth, error: `泳道提议失败（需人工 ROI）：${lastError}` });
+      continue;
+    }
+    const mapped = strip
+      ? regions.map((r) => ({ ...r, band: { ...r.band, x: r.band.x + strip.x0, y: r.band.y + strip.y }, background: { ...r.background, x: r.background.x + strip.x0, y: r.background.y + strip.y } }))
+      : regions;
+    const measure = (region) =>
+      payload.bg.kind === "rolling-ball"
+        ? measureRegionRollingBall(raster, region, signal, cachedRollingBallBackground(raster, payload.bg.radius, signal))
+        : measureRegion(raster, region, signal);
+    const lanes = mapped.map((region) => {
+      const m = measure(region);
+      return {
+        lane: region.lane, band: region.band, background: region.background,
+        bandSum: m.bandSum, backgroundMean: m.backgroundMean, net: m.net, warnings: m.warnings,
+      };
+    });
+    const control = lanes.find((l) => l.lane === payload.controlLane);
+    if (!control) throw new Error(`${name}: 对照泳道不存在 / Control lane not found: ${payload.controlLane}`);
+    for (const l of lanes) {
+      l.ratio = control && control.net > 0 ? +(l.net / control.net).toFixed(6) : null;
+    }
+    images.push({
+      file: name, width: raster.width, height: raster.height, bitDepth: raster.bitDepth,
+      laneCount: lanes.length, backgroundMethod: payload.bg.kind,
+      rollingBallRadius: payload.bg.kind === "rolling-ball" ? payload.bg.radius : null,
+      signal, controlLane: control.lane, lanes,
+    });
+  } catch (error) {
+    images.push({ file: name, error: String(error?.message ?? error) });
   }
-  if (!regions || regions.length === 0) {
-    images.push({ file: name, width: raster.width, height: raster.height, bitDepth: raster.bitDepth, error: `泳道提议失败（需人工 ROI）：${lastError}` });
-    continue;
-  }
-  const mapped = strip
-    ? regions.map((r) => ({ ...r, band: { ...r.band, x: r.band.x + strip.x0, y: r.band.y + strip.y }, background: { ...r.background, x: r.background.x + strip.x0, y: r.background.y + strip.y } }))
-    : regions;
-  const measure = (region) =>
-    payload.bg.kind === "rolling-ball"
-      ? measureRegionRollingBall(raster, region, signal, cachedRollingBallBackground(raster, payload.bg.radius, signal))
-      : measureRegion(raster, region, signal);
-  const lanes = mapped.map((region) => {
-    const m = measure(region);
-    return {
-      lane: region.lane, band: region.band, background: region.background,
-      bandSum: m.bandSum, backgroundMean: m.backgroundMean, net: m.net, warnings: m.warnings,
-    };
-  });
-  const control = lanes.find((l) => l.lane === payload.controlLane);
-  if (!control) throw new Error(`${name}: 对照泳道不存在 / Control lane not found: ${payload.controlLane}`);
-  for (const l of lanes) {
-    l.ratio = control && control.net > 0 ? +(l.net / control.net).toFixed(6) : null;
-  }
-  images.push({
-    file: name, width: raster.width, height: raster.height, bitDepth: raster.bitDepth,
-    laneCount: lanes.length, backgroundMethod: payload.bg.kind,
-    rollingBallRadius: payload.bg.kind === "rolling-ball" ? payload.bg.radius : null,
-    signal, controlLane: control.lane, lanes,
-  });
 }
 
 function parseStrip(spec, raster) {

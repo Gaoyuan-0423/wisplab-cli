@@ -123,3 +123,17 @@ test('ihc-validate compares JSON offline without a config or installed engines',
     assert.ok(output.documents.every(document => /^[a-f0-9]{64}$/.test(document.sha256)));
   }
 });
+
+
+test('CLI runtime controls keep stdout JSON and progress on stderr', t => {
+  const { dir, cfg } = fixture(t);
+  const result = run(['wb', 'image.png', '--config', cfg, '--timeout-ms', '600000'], dir);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(JSON.parse(result.stdout).runtime.timeoutMs, 600000);
+  assert.match(result.stderr, /0\/1.*started/);
+  assert.match(result.stderr, /1\/1.*completed/);
+  for (const args of [['--timeout-ms', '0'], ['--timeout-ms', 'NaN'], ['--file-timeout-ms', '200']]) {
+    const invalid = run(['wb', 'image.png', '--config', cfg, ...args], dir);
+    assert.notEqual(invalid.status, 0); assert.equal(invalid.stdout, '');
+  }
+});

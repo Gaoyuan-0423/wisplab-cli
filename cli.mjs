@@ -8,7 +8,8 @@ import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { runWb, runPcr, runIhc, runVerifyPcr, config, doctor } from "./lib.mjs";
+import { runAnalysisJob, normalizeRuntime } from "./runtime-controls.mjs";
+import { runIhc, runVerifyPcr, config, doctor } from "./lib.mjs";
 
 const CLI_DIR = dirname(fileURLToPath(import.meta.url));
 const argv = process.argv.slice(2);
@@ -32,15 +33,16 @@ const HELP = `wisplab — WispLab 三引擎无头定量（与 MCP server 共用�
   wisplab doctor [--strict]      环境/引擎修订检查 / Check engine readiness
   wisplab --version
 
+分析：--timeout-ms <ms> 整批时限，默认300000；IHC/IF --file-timeout-ms <ms> 单图时限，默认120000。
 全局：--config <path> 指定仓库路径配置。`;
 
 function emitAnalysis(result) {
   console.log(JSON.stringify(result, null, 2));
-  if ([...(result.files ?? []), ...(result.images ?? [])].some((item) => item.error)) process.exitCode = 1;
+  if (result.error || [...(result.files ?? []), ...(result.images ?? [])].some((item) => item.error)) process.exitCode = 1;
 }
 
 try {
-  const valueFlags = new Set(["config", "lanes", "strip", "bg", "signal", "control", "control-tif", "profile", "ref", "eff", "min-cq", "max-cq", "abs-dev", "z-score", "rep-sd", "qc-mode", "exclude-rows", "groups", "control-group", "images-root", "output-dir", "match-radius"]);
+  const valueFlags = new Set(["timeout-ms", "file-timeout-ms", "config", "lanes", "strip", "bg", "signal", "control", "control-tif", "profile", "ref", "eff", "min-cq", "max-cq", "abs-dev", "z-score", "rep-sd", "qc-mode", "exclude-rows", "groups", "control-group", "images-root", "output-dir", "match-radius"]);
   const opts = {};
   const positional = [];
   let literal = false;
@@ -65,13 +67,24 @@ try {
     console.log(HELP);
   } else {
     const allowed = {
-      wb: ["lanes", "strip", "bg", "signal", "control"],
-      pcr: ["ref", "control", "eff", "min-cq", "max-cq", "abs-dev", "z-score", "rep-sd", "qc-mode", "exclude-rows", "groups", "control-group", "images-root", "output-dir", "match-radius"], ihc: ["profile", "control-tif", "coloc"], if: [],
+      wb: ["timeout-ms", "lanes", "strip", "bg", "signal", "control"],
+      pcr: ["timeout-ms", "ref", "control", "eff", "min-cq", "max-cq", "abs-dev", "z-score", "rep-sd", "qc-mode", "exclude-rows", "groups", "control-group"], ihc: ["timeout-ms", "file-timeout-ms", "profile", "control-tif", "coloc"], if: ["timeout-ms", "file-timeout-ms"],
       grade: [], "verify-pcr": [], doctor: ["strict"], "ihc-validate": [], "ihc-annotation-pack": ["images-root", "output-dir"], "ihc-nuclei-validate": ["match-radius"],
     };
     if (!allowed[cmd]) throw new Error(`未知命令 / Unknown command: ${cmd}`);
     for (const key of Object.keys(opts)) if (key !== "config" && !allowed[cmd].includes(key)) throw new Error(`--${key}: unsupported for ${cmd}`);
     if (!["ihc-validate", "ihc-annotation-pack", "ihc-nuclei-validate"].includes(cmd)) config(opts.config);
+    const runtime = ["wb", "pcr", "ihc", "if"].includes(cmd) ? normalizeRuntime({
+      ...(opts["timeout-ms"] !== undefined ? { timeoutMs: Number(opts["timeout-ms"]) } : {}),
+      ...(opts["file-timeout-ms"] !== undefined ? { fileTimeoutMs: Number(opts["file-timeout-ms"]) } : {}),
+      onProgress: ({ progress, total, message }) => console.error(`wisplab: ${progress}/${total ?? "?"} ${message}`),
+    }) : null;
+    const controller = new AbortController();
+    if (runtime) {
+      runtime.signal = controller.signal;
+      process.once("SIGINT", () => controller.abort());
+      process.once("SIGTERM", () => controller.abort());
+    }
     if (cmd === "ihc-annotation-pack") {
       if(files.length !== 1) throw new Error("ihc-annotation-pack: expected result.json");
       console.log(JSON.stringify(createAnnotationPack(JSON.parse(readFileSync(files[0], "utf8")), {imagesRoot:opts["images-root"],outputDir:opts["output-dir"]}),null,2));
@@ -97,7 +110,7 @@ try {
       if (!files.length) throw new Error("wb：至少一个图像文件");
       const bg = String(opts.bg ?? "local");
       if (!/^(local|rolling(?::[1-9]\d*)?)$/.test(bg)) throw new Error("--bg: local | rolling[:radius]");
-      emitAnalysis(runWb({
+      emitAnalysis(await runAnalysisJob("wb", {
         files,
         lanes: opts.lanes ? Number(opts.lanes) : null,
         strip: typeof opts.strip === "string" ? opts.strip : null,
@@ -105,7 +118,7 @@ try {
         radius: bg.startsWith("rolling") ? Number(bg.split(":")[1] ?? 50) : 50,
         signal: String(opts.signal ?? "dark"),
         controlLane: Number(opts.control ?? "1"),
-      }));
+      }, config(), runtime));
     } else if (cmd === "pcr") {
       if (!files.length) throw new Error("pcr：至少一个数据表");
       const eff = {};
@@ -115,7 +128,7 @@ try {
         eff[parts[0].trim()] = Number(parts[1]);
       }
       if (Boolean(opts.groups) !== Boolean(opts["control-group"])) throw new Error("--groups and --control-group must be supplied together");
-      emitAnalysis(runPcr({
+      emitAnalysis(await runAnalysisJob("pcr", {
         biologicalDesign: opts.groups ? { samples: JSON.parse(opts.groups), controlGroup: opts["control-group"] } : null,
         files,
         refGenes: String(opts.ref ?? "").split(",").map((v) => v.trim()).filter(Boolean),
@@ -125,13 +138,13 @@ try {
           .filter(([, flag]) => opts[flag] !== undefined).map(([key, flag]) => [key, Number(opts[flag])])),
         qcMode: opts["qc-mode"] ?? "report",
         excludeRows: opts["exclude-rows"] === undefined ? [] : opts["exclude-rows"].split(",").map(Number),
-      }));
+      }, config(), runtime));
     } else if (cmd === "ihc" || cmd === "if") {
       if (!files.length) throw new Error(`${cmd}：至少一个图像文件`);
       const coloc = cmd === "if" || Boolean(opts.coloc);
       emitAnalysis(await runIhc({
         files,
-        coloc,
+        coloc, runtime,
         profile: coloc ? "if_coloc" : String(opts.profile ?? "h_dab"),
         controlTif: typeof opts["control-tif"] === "string" ? resolve(opts["control-tif"]) : null,
       }));

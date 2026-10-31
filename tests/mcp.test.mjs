@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync, realpathSync, readFileSync, copyFileSync } from 'node:fs';
 import { tmpdir, homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { createMcpHandler, SUPPORTED_VERSIONS } from '../mcp-server.mjs';
@@ -121,11 +121,11 @@ test('controlTif is checked with the same policy as primary images', async (t) =
 
 test('tilde roots expand and allowed symlinks are passed as canonical paths', async (t) => {
   const f = fixture(t);
-  const homeDir = mkdtempSync(join(homedir(), '.wisplab-mcp-test-'));
+  const homeDir = mkdtempSync(join(tmpdir(), 'wisplab-tilde-'));
   t.after(() => rmSync(homeDir, { recursive: true, force: true }));
   const image = join(homeDir, 'image.png'); writeFileSync(image, 'fixture');
   const link = join(homeDir, 'link.png'); symlinkSync(image, link);
-  f.cfg.allowPaths = ['~/' + homeDir.slice(homedir().length + 1)];
+  f.cfg.allowPaths = ['~/' + relative(homedir(), homeDir)];
   const response = await createMcpHandler(f)(call('wb_quantify', { files: [link] }));
   assert.equal(response.result.isError, false);
   assert.deepEqual(f.calls[0].files, [realpathSync(image)]);
@@ -198,6 +198,7 @@ test('stdio --config reaches the shared engine dispatcher instead of environment
 test('stdio drains asynchronous calls at EOF and processes both requests in order', (t) => {
   const f = fixture(t);
   copyFileSync(join(root, 'mcp-server.mjs'), join(f.dir, 'mcp-server.mjs'));
+  copyFileSync(join(root, 'runtime-controls.mjs'), join(f.dir, 'runtime-controls.mjs'));
   writeFileSync(join(f.dir, 'package.json'), JSON.stringify({ version: 'test', type: 'module' }));
   writeFileSync(join(f.dir, 'lib.mjs'), `export function config() { return ${JSON.stringify(f.cfg)}; }
     export async function runIhc({ coloc }) {
@@ -234,4 +235,26 @@ test('MCP forwards explicit biological design and supports a single reference',a
  assert.deepEqual(f.calls[0].biologicalDesign,design);
  const bad=await handle(call('pcr_analyze',{files:[f.image],biologicalDesign:{...design,paired:true}}));
  assert.ok(bad.error || bad.result.isError);
+});
+
+test('legacy progress uses only requested tokens; queued cancellation never starts the job', async t => {
+  const f = fixture(t), notifications = [], started = [];
+  let complete;
+  f.engine.runIhc = async ({ runtime, files }) => {
+    started.push(files[0]);
+    runtime.onProgress({ progress: 0, total: 1, message: 'started' });
+    await new Promise(resolve => { complete = resolve; });
+    runtime.onProgress({ progress: 1, total: 1, message: 'done' });
+    return { files: [{ file: files[0] }] };
+  };
+  const handle = createMcpHandler({ ...f, notify: event => notifications.push(event) });
+  await handle(initialize());
+  const a = handle({ jsonrpc: '2.0', id: 10, method: 'tools/call', params: { name: 'ihc_quantify', arguments: { files: [f.image] }, _meta: { progressToken: 99 } } });
+  await new Promise(resolve => setImmediate(resolve));
+  const b = handle({ jsonrpc: '2.0', id: 11, method: 'tools/call', params: { name: 'ihc_quantify', arguments: { files: [f.image] } } });
+  assert.equal(await handle({ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: 11 } }), null);
+  complete();
+  assert.equal((await a).result.isError, false); assert.equal(await b, null);
+  assert.equal(started.length, 1);
+  assert.deepEqual(notifications.map(n => [n.params.progressToken, n.params.progress]), [[99, 0], [99, 1]]);
 });
