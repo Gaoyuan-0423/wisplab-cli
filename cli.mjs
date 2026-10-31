@@ -25,7 +25,7 @@ const HELP = `wisplab — WispLab 三引擎无头定量（与 MCP server 共用�
                        单个内参即可；多个内参可选 / One reference gene is sufficient; multiple are optional
   wisplab grade <模块> <提交.json>   AI 分析评分（模块：pcr|ihc|wb|synthetic16）
   wisplab verify-pcr [验证目录]
-  wisplab doctor                 环境/引擎修订检查 / Check engine readiness
+  wisplab doctor [--strict]      环境/引擎修订检查 / Check engine readiness
   wisplab --version
 
 全局：--config <path> 指定仓库路径配置。`;
@@ -45,7 +45,7 @@ try {
     if (a === "--" && !literal) { literal = true; continue; }
     if (!literal && a.startsWith("-")) {
       const flag = a === "-h" ? "help" : a.slice(2);
-      if (["help", "version", "coloc"].includes(flag)) opts[flag] = true;
+      if (["help", "version", "coloc", "strict"].includes(flag)) opts[flag] = true;
       else if (a.startsWith("--") && valueFlags.has(flag)) {
         const value = argv[++i];
         if (!value || value.startsWith("--")) throw new Error(`${a}: 缺少参数 / missing value`);
@@ -63,7 +63,7 @@ try {
     const allowed = {
       wb: ["lanes", "strip", "bg", "signal", "control"],
       pcr: ["ref", "control", "eff", "min-cq", "max-cq", "abs-dev", "z-score", "rep-sd", "qc-mode", "exclude-rows", "groups", "control-group"], ihc: ["profile", "control-tif", "coloc"], if: [],
-      grade: [], "verify-pcr": [], doctor: [], "ihc-validate": [],
+      grade: [], "verify-pcr": [], doctor: ["strict"], "ihc-validate": [],
     };
     if (!allowed[cmd]) throw new Error(`未知命令 / Unknown command: ${cmd}`);
     for (const key of Object.keys(opts)) if (key !== "config" && !allowed[cmd].includes(key)) throw new Error(`--${key}: unsupported for ${cmd}`);
@@ -76,9 +76,9 @@ try {
       console.log(JSON.stringify(report,null,2));
       if (["incomplete","outside-tolerance"].includes(report.status)) process.exitCode=1;
     } else if (cmd === "doctor") {
-      const result = doctor();
+      const result = doctor({ strict: Boolean(opts.strict) });
       console.log(JSON.stringify(result, null, 2));
-      process.exitCode = result.ready ? 0 : 1;
+      process.exitCode = (opts.strict ? result.verified : result.ready) ? 0 : 1;
     } else if (cmd === "wb") {
       if (!files.length) throw new Error("wb：至少一个图像文件");
       const bg = String(opts.bg ?? "local");
