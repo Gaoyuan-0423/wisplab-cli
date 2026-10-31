@@ -19,6 +19,12 @@ const payload = JSON.parse(process.argv[2]);
 const images = [];
 for (const path of payload.files) {
   const name = path.split("/").pop() ?? path;
+  const grouped = payload.biologicalDesign != null;
+  const record = { file: name, primaryAnalysis: {
+    kind: grouped ? "biological-groups" : "well-level",
+    statisticalUnit: grouped ? "biological-sample" : "well",
+    status: "error", summaries: [], comparisons: [], method: null, multiplicityFamilySize: null, error: "Analysis did not complete",
+  } };
   try {
     const input = await readInputFile(new File([readFileSync(path)], name));
     const sheet = input.kind === "workbook" ? input.sheetNames[0] : null;
@@ -33,15 +39,16 @@ for (const path of payload.files) {
       ...(input.kind === "rdml" ? input.targetEfficiencies : {}),
       ...(payload.efficiencies ?? {}),
     };
+    Object.assign(record, { inputKind: input.kind, sheet, format: r.format ?? null, efficiencies });
     const prepared = preparePcrRows(rows, payload, { computeQcFlags, sd, isNtcRow, isStandardRow });
+    record.qcReport = prepared.report;
     const out = analyzeDeltaDeltaCt(prepared.rows, {
       refGenes: payload.refGenes,
       controlSamples: payload.controlSamples,
       efficiencies: Object.keys(efficiencies).length ? efficiencies : undefined,
       qc: prepared.settings,
     });
-    const biologicalGroups = analyzeBiologicalGroups(prepared.rows, { ...payload, efficiencies }, { mean, sd, welchTTest, isNtcRow, isStandardRow });
-    images.push({
+    Object.assign(record, {
       file: name,
       inputKind: input.kind,
       sheet,
@@ -51,7 +58,6 @@ for (const path of payload.files) {
       effMode: out.effMode,
       efficiencies: out.efficiencies,
       qcReport: prepared.report,
-      biologicalGroups,
       ...(out.results.length === 0 ? { error: "No relative-expression results; inspect reference/control names and QC exclusions / 无相对表达结果，请检查内参、对照及排除行" } : {}),
       warnings: [
         prepared.report.replication.note,
@@ -64,9 +70,27 @@ for (const path of payload.files) {
       ntcReport: out.ntcReport,
       results: out.results,
     });
+    record.biologicalGroups = analyzeBiologicalGroups(prepared.rows, { ...payload, efficiencies }, { mean, sd, welchTTest, isNtcRow, isStandardRow });
+    record.primaryAnalysis = {
+      kind: grouped ? "biological-groups" : "well-level",
+      statisticalUnit: grouped ? "biological-sample" : "well",
+      status: record.error ? "error" : "success",
+      summaries: grouped ? record.biologicalGroups.summaries : out.results,
+      comparisons: grouped ? record.biologicalGroups.comparisons : out.results.filter(row => !row.isControl).map(row => ({
+        sample: row.sample, target: row.target, controlSamples: out.controlSamples,
+        pValue: row.pValue, pAdjusted: row.pAdjusted, statMethod: row.statMethod,
+      })),
+      method: grouped ? record.biologicalGroups.method : "See statMethod in each well-level comparison",
+      multiplicityFamilySize: grouped ? record.biologicalGroups.multiplicityFamilySize : null,
+      error: record.error ?? null,
+    };
   } catch (err) {
-    images.push({ file: name, error: String(err.message ?? err) });
+    record.error = String(err.message ?? err);
+    record.primaryAnalysis.error = record.error;
+    // The requested statistical unit stays explicit even if grouping fails.
+    // Earlier parsing, QC, NTC and legacy results remain available for diagnosis only.
   }
+  images.push(record);
 }
 
 console.log("@@WISPLAB@@" + JSON.stringify({ files: images }));
