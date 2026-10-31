@@ -30,8 +30,12 @@ export function analyzeBiologicalGroups(rows, options, { mean, sd, welchTTest, i
   if (!refs.length) throw new Error('Select a reference gene / 请选择一个内参基因');
   const sampleRows=rows.filter(r=>!isNtcRow(r)&&!isStandardRow(r)&&r.sample&&r.target);
   const present=new Set(sampleRows.map(r=>r.sample));
-  for(const s of present)if(!Object.hasOwn(design.samples,s))throw new Error(`Unmapped biological sample: ${s}`);
-  for(const s of Object.keys(design.samples))if(!present.has(s))throw new Error(`Unknown biological sample: ${s}`);
+  const unmapped = [...present].filter(s => !Object.hasOwn(design.samples, s));
+  const unknown = Object.keys(design.samples).filter(s => !present.has(s));
+  if (unmapped.length || unknown.length) throw new Error([
+    unmapped.length ? `Unmapped biological samples: ${unmapped.join(', ')}` : null,
+    unknown.length ? `Unknown biological samples: ${unknown.join(', ')}` : null,
+  ].filter(Boolean).join('; '));
   const targets=[...new Set(sampleRows.map(r=>r.target))].filter(g=>!refs.includes(g)).sort();
   const eff = gene => options.efficiencies?.[gene] ?? 100;
   const groups=[...new Set(Object.values(design.samples))];

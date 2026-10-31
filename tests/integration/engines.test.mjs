@@ -65,12 +65,45 @@ test('pinned real WispLab engines', {timeout:240000}, async t=>{
     const input=file('biological.csv',data.join('\n'));
     const args={files:[input],refGenes:['GAPDH'],biologicalDesign:{samples,controlGroup:'C'}};
     const r=runPcr(args);assertManifest(r,'pcr');const b=r.files[0].biologicalGroups;
+    assert.equal(r.files[0].primaryAnalysis.kind,'biological-groups');assert.equal(r.files[0].primaryAnalysis.status,'success');
+    assert.deepEqual(r.files[0].primaryAnalysis.summaries,b.summaries);assert.deepEqual(r.files[0].primaryAnalysis.comparisons,b.comparisons);
     assert.deepEqual(r.files[0].refGenesUsed,['GAPDH']);assert.equal(b.summaries[1].nBiological,3);
     close(b.summaries[1].foldChange,4);close(b.comparisons[0].pValue,0.07048399691021993,1e-10);
     close(b.comparisons[0].df,4);assert.equal(b.units[0].technicalWellCount,5);
     const cli=JSON.parse(execFileSync(process.execPath,[join(root,'cli.mjs'),'pcr',input,'--config',cfgPath,'--ref','GAPDH','--groups',JSON.stringify(samples),'--control-group','C'],{encoding:'utf8'}));
     assert.deepEqual(cli.files[0].biologicalGroups,b);
     assert.throws(()=>runPcr({...args,controlSamples:['S1']}),/conflicts/);
+  });
+  await t.test('grouping errors retain real QC/NTC diagnostics and never fall back in CLI/MCP',()=>{
+    const biologicalDesign={samples:{C:'Control',TYPO:'Treatment'},controlGroup:'Control'};
+    const args={files:[csv],refGenes:['GAPDH'],qc:{maxCq:35},biologicalDesign};
+    const result=runPcr(args), f=result.files[0];
+    assert.equal(result.provenance.status,'error');assert.match(f.error,/Unmapped biological samples: S; Unknown biological samples: TYPO/);
+    assert.deepEqual(f.qcReport.flaggedRowIds,[12]);assert.equal(f.ntcReport[0].verdict,'contaminated');assert.ok(f.results.length);
+    assert.equal(f.primaryAnalysis.kind,'biological-groups');assert.equal(f.primaryAnalysis.statisticalUnit,'biological-sample');
+    assert.equal(f.primaryAnalysis.status,'error');assert.deepEqual(f.primaryAnalysis.comparisons,[]);
+    const cli=spawnSync(process.execPath,[join(root,'cli.mjs'),'pcr',csv,'--config',cfgPath,'--ref','GAPDH','--groups',JSON.stringify(biologicalDesign.samples),'--control-group','Control'],{encoding:'utf8'});
+    assert.equal(cli.status,1);assert.equal(JSON.parse(cli.stdout).files[0].primaryAnalysis.status,'error');
+    const meta={'io.modelcontextprotocol/protocolVersion':'2026-07-28','io.modelcontextprotocol/clientCapabilities':{}};
+    const mcp=spawnSync(process.execPath,[join(root,'mcp-server.mjs'),'--config',cfgPath],{input:JSON.stringify({jsonrpc:'2.0',id:1,method:'tools/call',params:{name:'pcr_analyze',arguments:args,_meta:meta}})+'\n',encoding:'utf8'});
+    assert.equal(mcp.status,0,mcp.stderr);const reply=JSON.parse(mcp.stdout);assert.equal(reply.result.isError,true);
+    const diagnostic=JSON.parse(reply.result.content[0].text).files[0];assert.equal(diagnostic.primaryAnalysis.kind,'biological-groups');
+    assert.equal(diagnostic.ntcReport[0].verdict,'contaminated');assert.deepEqual(diagnostic.qcReport.flaggedRowIds,[12]);
+    assert.equal(runPcr(pcrArgs).files[0].primaryAnalysis.statisticalUnit,'well');
+  });
+  await t.test('biological Welch preserves a representable deep-tail p-value against R',()=>{
+    const samples={},data=['Sample,Target,Cq'];
+    for(const group of ['C','S'])for(let i=0;i<10;i++){
+      const sample=`${group}${i}`;samples[sample]=group;
+      data.push(`${sample},GAPDH,20`,`${sample},T,${(group==='C'?24:20)+(i-4.5)*0.02}`);
+    }
+    const input=file('deep-tail.csv',data.join('\n'));
+    const result=runPcr({files:[input],refGenes:['GAPDH'],biologicalDesign:{samples,controlGroup:'C'}});
+    assertManifest(result,'pcr');const primary=result.files[0].primaryAnalysis;
+    assert.equal(primary.status,'success');const c=primary.comparisons[0];
+    // Independent R 4.5.3 stats::t.test, equal-sized input groups; relative tolerance rejects zero.
+    assert.ok(c.pValue>0);assert.ok(Math.abs(c.pValue/3.2606067405940227e-29-1)<1e-10);
+    assert.equal(c.pAdjusted,c.pValue);assert.equal(c.nBiological,10);assert.equal(c.nControl,10);
   });
   await t.test('actual binary XLSX equals CSV; zipped RDML honors declared and explicit efficiencies',()=>{
     const require=createRequire(join(cfg.repos.pcr,'package.json'));const XLSX=require('xlsx');const {zipSync,strToU8}=require('fflate');

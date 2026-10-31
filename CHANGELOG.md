@@ -1,5 +1,9 @@
 # Changelog / 更新记录
 
+## 0.7.0 — 2026-10-31
+
+- PCR 主结果显式标注统计单位，分组错误保留 QC/NTC，固定稳定 Welch 尾概率修订。 / Explicit PCR primary results and retained diagnostics; pin stable Welch tail evaluation.
+
 ## 0.6.0 — 2026-10-31
 
 - IHC 图像哈希绑定的参考值对照、误差与容差报告；本地厂商图复核脚本。 / Hash-bound IHC reference comparison and local vendor-image verification.

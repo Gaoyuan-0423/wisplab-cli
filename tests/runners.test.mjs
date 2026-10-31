@@ -115,3 +115,32 @@ test('PCR applies RDML efficiencies with explicit values taking precedence', t =
   assert.equal(file.sheet, null);
   assert.deepEqual(file.efficiencies, { T: 92, R: 99 });
 });
+
+test('PCR exposes well-level primary results without biological inference', t => {
+  const f=pcrFixture(t);
+  const file=f.run({files:[join(f.dir,'table.xlsx')],refGenes:['R'],controlSamples:['C']}).data.files[0];
+  assert.equal(file.primaryAnalysis.kind,'well-level');
+  assert.equal(file.primaryAnalysis.statisticalUnit,'well');
+  assert.equal(file.primaryAnalysis.status,'success');
+  assert.deepEqual(file.primaryAnalysis.summaries,file.results);
+});
+
+test('PCR grouping failure preserves QC, NTC and legacy diagnostics without inference fallback', t => {
+  const f=pcrFixture(t);
+  const file=f.run({files:[join(f.dir,'table.xlsx')],refGenes:['R'],controlSamples:['C'],
+    biologicalDesign:{samples:{TYPO:'Control',S1:'Treatment'},controlGroup:'Control'}}).data.files[0];
+  assert.match(file.error,/Unmapped biological samples: C; Unknown biological samples: TYPO, S1/);
+  assert.ok(file.qcReport.rows.length);assert.deepEqual(file.ntcReport,[]);assert.ok(file.results.length);
+  assert.equal(file.primaryAnalysis.kind,'biological-groups');
+  assert.equal(file.primaryAnalysis.statisticalUnit,'biological-sample');
+  assert.equal(file.primaryAnalysis.status,'error');
+  assert.deepEqual(file.primaryAnalysis.summaries,[]);assert.deepEqual(file.primaryAnalysis.comparisons,[]);
+  assert.equal(file.primaryAnalysis.error,file.error);
+});
+
+test('PCR parse failures retain the requested primary analysis kind', t => {
+  const f=pcrFixture(t);
+  const file=f.run({files:[join(f.dir,'missing.csv')],biologicalDesign:{samples:{C:'C',S:'S'},controlGroup:'C'}}).data.files[0];
+  assert.match(file.error,/ENOENT/);assert.equal(file.primaryAnalysis.kind,'biological-groups');
+  assert.equal(file.primaryAnalysis.status,'error');assert.deepEqual(file.primaryAnalysis.summaries,[]);
+});

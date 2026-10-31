@@ -1,7 +1,7 @@
 {
   "name": "wisplab-cli",
   "private": true,
-  "version": "0.6.0",
+  "version": "0.7.0",
   "type": "module",
   "description": "WispLab 本地定量命令行与 MCP 桥 / Local CLI and MCP bridge for WB, IHC, IF and qPCR analysis.",
   "bin": {
