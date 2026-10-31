@@ -13,7 +13,8 @@ WispLab 的本地命令行与 MCP 接口，用于 **Western blot、IHC/组织染
 | `wb` | [blot-workbench](https://github.com/Gaoyuan-0423/blot-workbench) | PNG/TIFF 泳道提议、指定条带范围、局部或 rolling-ball 背景扣除、亮/暗信号、相对对照泳道的净信号比值 |
 | `ihc` | [pathology-workbench](https://github.com/Gaoyuan-0423/pathology-workbench) | H-DAB、H&E、Masson 整图分析；阳性面积、核计数、核强度 H-score、阈值与 QC；H-DAB 支持阴性对照片标定 |
 | `if` | 同上 | 默认红/绿通道的 Pearson、阈值后 Pearson 和 Manders M1/M2 |
-| `pcr` | [pcr-workbench](https://github.com/Gaoyuan-0423/pcr-workbench) | 表格/RDML 导入、多内参归一化、ΔΔCt/Pfaffl 相对表达、NTC 报告和引擎提供的统计结果 |
+| `pcr` | [pcr-workbench](https://github.com/Gaoyuan-0423/pcr-workbench) | 表格/RDML 导入、单内参归一化（多内参可选）、ΔΔCt/Pfaffl 相对表达、NTC 报告、显式生物学分组与逐孔统计 |
+| `ihc-validate` | 离线 JSON 对照 | 按图像哈希匹配已有分析和参考值；比较核数、H-score、阳性面积，无需引擎配置 |
 | `doctor` | 本地环境 | 配置位置、引擎路径、Git 修订、未提交修改、运行依赖检查 |
 
 CLI 与 MCP 共用 `lib.mjs`。WB/qPCR 由对应仓库的 `tsx` 运行；IHC/IF 通过本地 Vite 和 Playwright Chromium 调用浏览器引擎。**桥接包本身没有 npm 运行依赖**，但三个引擎及 Chromium 必须单独安装。运行的是本地配置的修订，更新本仓库不会自动更新引擎。
@@ -37,12 +38,15 @@ npm link                 # 可选：启用 wisplab 命令
 wisplab wb blot.png --strip "140,85,160,350" --lanes 6 --bg rolling:50 --control 1
 
 # qPCR：内参和对照名称必须与数据表一致；效率以百分数输入
-wisplab pcr plate.csv --ref GAPDH,ACTB --control C1,C2
+wisplab pcr plate.csv --ref GAPDH --control C1,C2
 wisplab pcr plate.csv --ref GAPDH --control C1 --eff "LDHA=92;GAPDH=99"
 
 # IHC：对照片标定限 H-DAB；IF：默认红/绿通道
 wisplab ihc section.tif --profile h_dab --control-tif negative.tif
 wisplab if duplex.png
+
+# 已有 IHC 分析和参考值的离线比较；无需配置或安装引擎
+wisplab ihc-validate result.json reference.json
 ```
 
 `--strip y,h,x0,x1` 使用原图像素坐标，`h` 为高度，`x1` 为右边界；选区应保留背景余量并排除 marker、文字和其他面板。`--control` 对 WB 是从 1 开始的泳道号，对 qPCR 是逗号分隔的样本名。逐文件分析错误会使 CLI 退出码为 1，MCP 返回 `isError: true`，同时保留 JSON 结果。即使执行成功，也应检查 `warnings`。
@@ -66,6 +70,8 @@ wisplab if duplex.png
 `allowPaths` 限制 **MCP 工具的输入路径**，包括对照片和验证材料；校验解析符号链接后的实际路径。CLI 是直接执行的本地命令，不套用这层 MCP 限制。IHC/IF 启动的 Vite 只监听 `127.0.0.1`；端口冲突时修改 `ihc.devPort`。
 
 ## MCP 与 AI 技能
+
+`ihc-validate` 是独立的本地 CLI 命令，不读取 `wisplab.config.json` 或 `WISPLAB_CONFIG`。其 `ungraded` 状态仅表示比较完成，不能视为验证通过。
 
 五个工具：`wb_quantify`、`ihc_quantify`、`if_colocalize`、`pcr_analyze`、`pcr_verify`。使用 stdio 传输；IHC/IF 调用会等待分析完成后返回结果。支持 2026-07-28 的 `server/discover` 与请求元数据，并保留旧客户端的 `initialize` 协商。
 
@@ -106,7 +112,7 @@ wisplab doctor > environment.json
 - IHC/IF 当前走整图默认参数，不暴露上游界面的手工 ROI、标尺、全部分割设置或模型选择。核强度 H-score 不等同于所有标记的临床评分；未提供标尺时不输出可解释的每 mm² 密度。
 - 病理引擎对超过 4096 像素边长的图像降采样，16 位 TIFF 转为 8 位工作像素；WB 的 8/16 位图像流程与此不同。
 - IF 接口使用引擎默认的 R/G 通道，不提供通道选择参数；上游界面有更多选项。伪彩图需先核实实际通道含义。
-- qPCR 复用上游导入器，但 CLI 不提供交互式分组或全部上游设置；可通过 CLI/MCP 配置 Cq、偏差、z 分数和复孔 SD 质控，默认只报告。Excel 只使用第一个工作表。具体格式见[上手指南](GETTING-STARTED.md)。
+- qPCR 支持显式生物学样本分组（单文件、非配对）以及 Cq、偏差、z 分数和复孔 SD 质控，默认只报告。主要解读 `files[].primaryAnalysis` 的统计单位与状态；请求的生物学分组失败时，不得改用旧逐孔结果充当分组结果。CLI 不提供交互式分组或全部上游设置；Excel 只使用第一个工作表。具体格式见[上手指南](GETTING-STARTED.md)。
 - 分析命令输出 JSON，不导出叠加图或完整实验报告。需要可视化复核时使用相应引擎的界面。
 
 问题与变更通过 [Issues](https://github.com/Gaoyuan-0423/wisplab-cli/issues) 和 [Pull requests](https://github.com/Gaoyuan-0423/wisplab-cli/pulls) 记录。许可证见 [LICENSE](LICENSE)。

@@ -95,3 +95,31 @@ test('CLI passes explicit QC policy and rejects inconsistent thresholds', (t) =>
   }
   assert.notEqual(run(['pcr','one.csv','two.csv','--config',cfg,'--exclude-rows','2'],dir).status,0);
 });
+
+test('ihc-validate compares JSON offline without a config or installed engines', t => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'wisplab-offline-')));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const sha256 = 'a'.repeat(64);
+  const input = join(dir, 'result.json'), reference = join(dir, 'reference.json');
+  writeFileSync(input, JSON.stringify({
+    files: [{ file: 'image.png', settings: { profile: 'h_dab' }, overall: { totalNuclei: 4 } }],
+    provenance: { analysis: 'ihc', status: 'success', runId: 'offline-fixture',
+      inputs: [{ file: 'image.png', role: 'input', before: { sha256 }, after: { sha256 }, unchanged: true }],
+      checks: { inputsUnchanged: true, engineUnchanged: true, bridgeUnchanged: true } },
+  }));
+  for (const [expectedCount, tolerance, expectedStatus, exitCode] of [[4, undefined, 'ungraded', 0], [4, 0, 'within-tolerance', 0], [5, 0, 'outside-tolerance', 1]]) {
+    writeFileSync(reference, JSON.stringify({ schemaVersion: 'wisplab.ihc-reference/v1', images: [{
+      file: 'image.png', sha256, scope: 'whole-image', profile: 'h_dab', sourceKind: 'synthetic',
+      method: 'Synthetic offline command fixture', metrics: { totalNuclei: expectedCount },
+      ...(tolerance === undefined ? {} : { tolerances: { totalNuclei: tolerance } }),
+    }] }));
+    const result = run(['ihc-validate', input, reference], dir, { WISPLAB_CONFIG: join(dir, 'nonexistent-config.json') });
+    assert.equal(result.status, exitCode, result.stderr);
+    assert.equal(result.stderr, '');
+    const output = JSON.parse(result.stdout);
+    assert.equal(output.status, expectedStatus);
+    assert.equal(output.analysisRunId, 'offline-fixture');
+    assert.equal(output.documents.length, 2);
+    assert.ok(output.documents.every(document => /^[a-f0-9]{64}$/.test(document.sha256)));
+  }
+});

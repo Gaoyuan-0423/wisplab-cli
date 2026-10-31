@@ -16,7 +16,7 @@ const HELP = `wisplab — WispLab 三引擎无头定量（与 MCP server 共用�
   wisplab wb  <图...>  [--lanes N] [--strip y,h,x0,x1] [--bg local|rolling[:半径]]
                        [--signal dark|light] [--control 泳道号]
   wisplab ihc <图...>  [--profile h_dab|h_eosin|masson] [--control-tif 对照片]
-  wisplab ihc-validate <result.json> <reference.json>  人工/独立参考值比较 / Compare sourced references
+  wisplab ihc-validate <result.json> <reference.json>  离线参考值比较，无需引擎配置 / Offline reference comparison; no engine config
   wisplab if  <图...>                                  IF 双通道共定位
   wisplab pcr <表...>  [--ref GAPDH] [--control C1,C2] [--eff "T=92;GAPDH=99"]
                        [--min-cq N] [--max-cq N] [--abs-dev N] [--z-score N] [--rep-sd N]
@@ -67,7 +67,7 @@ try {
     };
     if (!allowed[cmd]) throw new Error(`未知命令 / Unknown command: ${cmd}`);
     for (const key of Object.keys(opts)) if (key !== "config" && !allowed[cmd].includes(key)) throw new Error(`--${key}: unsupported for ${cmd}`);
-    config(opts.config);
+    if (cmd !== "ihc-validate") config(opts.config);
     if (cmd === "ihc-validate") {
       if (files.length !== 2) throw new Error("ihc-validate: expected result.json and reference.json");
       const bytes = files.map(path => readFileSync(path));

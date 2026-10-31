@@ -13,7 +13,8 @@ A local CLI and MCP interface for **Western blot, IHC/histology, two-channel imm
 | `wb` | [blot-workbench](https://github.com/Gaoyuan-0423/blot-workbench) | PNG/TIFF lane proposals, a specified panel strip, local or rolling-ball background subtraction, dark/light signal, net-signal ratios against a control lane |
 | `ihc` | [pathology-workbench](https://github.com/Gaoyuan-0423/pathology-workbench) | Whole-image H-DAB, H&E, and Masson analysis; positive area, nuclei counts, nuclear-intensity H-score, thresholds and QC; negative-control calibration for H-DAB |
 | `if` | Same as above | Pearson, thresholded Pearson, and Manders M1/M2 using the default red/green channels |
-| `pcr` | [pcr-workbench](https://github.com/Gaoyuan-0423/pcr-workbench) | Table/RDML import, multiple-reference normalization, ΔΔCt/Pfaffl fold changes, NTC reports, and engine-provided statistics |
+| `pcr` | [pcr-workbench](https://github.com/Gaoyuan-0423/pcr-workbench) | Table/RDML import, single-reference normalization (multiple references optional), ΔΔCt/Pfaffl fold changes, NTC reports, explicit biological groups and well-level statistics |
+| `ihc-validate` | Offline JSON comparison | Hash-bound comparison of existing IHC results and reference counts, H-score or positive area; no engine config needed |
 | `doctor` | Local environment | Config location, engine paths, Git revisions, uncommitted changes, and runtime dependency checks |
 
 CLI and MCP share `lib.mjs`. WB/qPCR use each engine repository's `tsx`; IHC/IF call the browser engine through local Vite and Playwright Chromium. **The bridge itself has no npm runtime dependencies**, but the engines and Chromium must be installed separately. It runs the configured local revisions: updating this repository does not update the engines automatically.
@@ -37,12 +38,15 @@ npm link                 # Optional: enable the wisplab command
 wisplab wb blot.png --strip "140,85,160,350" --lanes 6 --bg rolling:50 --control 1
 
 # qPCR: names must match the table; efficiencies are percentages
-wisplab pcr plate.csv --ref GAPDH,ACTB --control C1,C2
+wisplab pcr plate.csv --ref GAPDH --control C1,C2
 wisplab pcr plate.csv --ref GAPDH --control C1 --eff "LDHA=92;GAPDH=99"
 
 # IHC: control calibration is H-DAB only; IF: default red/green channels
 wisplab ihc section.tif --profile h_dab --control-tif negative.tif
 wisplab if duplex.png
+
+# Compare existing IHC results and references offline; no engine setup needed
+wisplab ihc-validate result.json reference.json
 ```
 
 `--strip y,h,x0,x1` uses original image pixels: `h` is the height and `x1` the right boundary. Include background margins and exclude markers, labels, and other panels. For WB, `--control` is a lane number starting at 1; for qPCR, it is a comma-separated list of sample names. Per-file analysis errors set CLI exit code 1 or MCP `isError: true`, while retaining JSON results. Inspect `warnings` even after successful execution.
@@ -66,6 +70,8 @@ Precedence: `--config <path>` → `WISPLAB_CONFIG` → `wisplab.config.json` in 
 `allowPaths` restricts **MCP tool input paths**, including control images and verification materials, using resolved real paths to check symbolic links. Direct local CLI execution does not apply this MCP restriction. IHC/IF start Vite on `127.0.0.1` only; change `ihc.devPort` if the port is occupied.
 
 ## MCP and AI skills
+
+`ihc-validate` is a standalone local CLI command and does not read `wisplab.config.json` or `WISPLAB_CONFIG`. Its `ungraded` status means comparison completed, not validation passed.
 
 Five tools are available: `wb_quantify`, `ihc_quantify`, `if_colocalize`, `pcr_analyze`, and `pcr_verify`. Transport is stdio; IHC/IF calls wait for analysis to finish before returning results. The server supports 2026-07-28 `server/discover` and request metadata, while retaining `initialize` negotiation for older clients.
 
@@ -106,7 +112,7 @@ The original README's 2026-10-18 M1/M3/M4 numbers were historical validation rec
 - IHC/IF use whole-image defaults. The bridge does not expose the upstream GUI's manual ROIs, scale calibration, all segmentation settings, or model selection. Nuclear-intensity H-score is not a universal clinical marker score; without scale calibration, per-mm² density cannot be meaningfully reported.
 - The pathology engine downsamples images with a side longer than 4096 pixels and converts 16-bit TIFF to 8-bit working pixels. WB has a separate 8/16-bit image workflow.
 - IF uses the engine's default R/G channels and exposes no channel-selection parameter. The upstream GUI offers additional controls. Verify the meaning of channels in pseudocolor images.
-- qPCR reuses the upstream importer, but exposes no interactive grouping or every upstream setting. Per-well QC, replicate-SD reporting and explicit exclusions are configurable; report-only is the default. Excel uses the first worksheet only. Supported formats are listed in [Getting started](GETTING-STARTED.en.md).
+- qPCR supports explicit biological sample groups (single file, unpaired), configurable per-well QC, replicate-SD reporting and explicit exclusions; report-only is the default. Read the statistical unit and status in `files[].primaryAnalysis` first. If a requested biological design fails, do not substitute legacy well-level statistics. Interactive grouping and some upstream settings are not exposed; Excel uses the first worksheet only. Supported formats are listed in [Getting started](GETTING-STARTED.en.md).
 - Analysis commands return JSON, without overlay images or full experiment reports. Use the corresponding engine GUI for visual review.
 
 Track problems and changes through [Issues](https://github.com/Gaoyuan-0423/wisplab-cli/issues) and [Pull requests](https://github.com/Gaoyuan-0423/wisplab-cli/pulls). See [LICENSE](LICENSE).

@@ -4,6 +4,9 @@
 
 - PCR 主结果显式标注统计单位，分组错误保留 QC/NTC，固定稳定 Welch 尾概率修订。 / Explicit PCR primary results and retained diagnostics; pin stable Welch tail evaluation.
 
+- IHC/IF 单图失败保留整批成功结果，厂商图复核脚本保留场景错误和汇总。 / Preserve successful IHC/IF images and scene summaries across failures.
+- IHC JSON 对照无需引擎配置；双语文档与 AI 技能统一单内参示例和主统计结果入口。 / Config-free offline IHC comparison; aligned single-reference and primary-result guidance.
+
 ## 0.6.0 — 2026-10-31
 
 - IHC 图像哈希绑定的参考值对照、误差与容差报告；本地厂商图复核脚本。 / Hash-bound IHC reference comparison and local vendor-image verification.
