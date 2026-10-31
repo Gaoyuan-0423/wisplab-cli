@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 /** wisplab CLI — 参数解析 + 调 lib.mjs（与 mcp-server.mjs 共用同一份引擎调度）。 */
 import { createHash } from "node:crypto";
+import { compareNucleiReference } from "./ihc-nuclei-validation.mjs";
+import { createAnnotationPack } from "./ihc-annotation-pack.mjs";
 import { compareIhcReference } from "./ihc-validation.mjs";
 import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
@@ -17,6 +19,8 @@ const HELP = `wisplab — WispLab 三引擎无头定量（与 MCP server 共用�
                        [--signal dark|light] [--control 泳道号]
   wisplab ihc <图...>  [--profile h_dab|h_eosin|masson] [--control-tif 对照片]
   wisplab ihc-validate <result.json> <reference.json>  离线参考值比较，无需引擎配置 / Offline reference comparison; no engine config
+  wisplab ihc-annotation-pack <result.json> --images-root DIR --output-dir DIR
+  wisplab ihc-nuclei-validate <result.json> <reference.json> --match-radius PX
   wisplab if  <图...>                                  IF 双通道共定位
   wisplab pcr <表...>  [--ref GAPDH] [--control C1,C2] [--eff "T=92;GAPDH=99"]
                        [--min-cq N] [--max-cq N] [--abs-dev N] [--z-score N] [--rep-sd N]
@@ -36,7 +40,7 @@ function emitAnalysis(result) {
 }
 
 try {
-  const valueFlags = new Set(["config", "lanes", "strip", "bg", "signal", "control", "control-tif", "profile", "ref", "eff", "min-cq", "max-cq", "abs-dev", "z-score", "rep-sd", "qc-mode", "exclude-rows", "groups", "control-group"]);
+  const valueFlags = new Set(["config", "lanes", "strip", "bg", "signal", "control", "control-tif", "profile", "ref", "eff", "min-cq", "max-cq", "abs-dev", "z-score", "rep-sd", "qc-mode", "exclude-rows", "groups", "control-group", "images-root", "output-dir", "match-radius"]);
   const opts = {};
   const positional = [];
   let literal = false;
@@ -62,13 +66,23 @@ try {
   } else {
     const allowed = {
       wb: ["lanes", "strip", "bg", "signal", "control"],
-      pcr: ["ref", "control", "eff", "min-cq", "max-cq", "abs-dev", "z-score", "rep-sd", "qc-mode", "exclude-rows", "groups", "control-group"], ihc: ["profile", "control-tif", "coloc"], if: [],
-      grade: [], "verify-pcr": [], doctor: ["strict"], "ihc-validate": [],
+      pcr: ["ref", "control", "eff", "min-cq", "max-cq", "abs-dev", "z-score", "rep-sd", "qc-mode", "exclude-rows", "groups", "control-group", "images-root", "output-dir", "match-radius"], ihc: ["profile", "control-tif", "coloc"], if: [],
+      grade: [], "verify-pcr": [], doctor: ["strict"], "ihc-validate": [], "ihc-annotation-pack": ["images-root", "output-dir"], "ihc-nuclei-validate": ["match-radius"],
     };
     if (!allowed[cmd]) throw new Error(`未知命令 / Unknown command: ${cmd}`);
     for (const key of Object.keys(opts)) if (key !== "config" && !allowed[cmd].includes(key)) throw new Error(`--${key}: unsupported for ${cmd}`);
-    if (cmd !== "ihc-validate") config(opts.config);
-    if (cmd === "ihc-validate") {
+    if (!["ihc-validate", "ihc-annotation-pack", "ihc-nuclei-validate"].includes(cmd)) config(opts.config);
+    if (cmd === "ihc-annotation-pack") {
+      if(files.length !== 1) throw new Error("ihc-annotation-pack: expected result.json");
+      console.log(JSON.stringify(createAnnotationPack(JSON.parse(readFileSync(files[0], "utf8")), {imagesRoot:opts["images-root"],outputDir:opts["output-dir"]}),null,2));
+    } else if (cmd === "ihc-nuclei-validate") {
+      if(files.length !== 2) throw new Error("ihc-nuclei-validate: expected result.json and reference.json");
+      const bytes=files.map(path=>readFileSync(path));
+      const report=compareNucleiReference(...bytes.map(data=>JSON.parse(data)), {radius:Number(opts["match-radius"])});
+      report.documents=bytes.map((data,i)=>({role:i===0?"analysis-result":"nucleus-reference",sha256:createHash("sha256").update(data).digest("hex")}));
+      console.log(JSON.stringify(report,null,2));
+      if(report.status !== "compared") process.exitCode=1;
+    } else if (cmd === "ihc-validate") {
       if (files.length !== 2) throw new Error("ihc-validate: expected result.json and reference.json");
       const bytes = files.map(path => readFileSync(path));
       const report = compareIhcReference(...bytes.map(data => JSON.parse(data)));
