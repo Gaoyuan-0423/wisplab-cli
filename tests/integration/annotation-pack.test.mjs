@@ -94,6 +94,7 @@ test('real browser annotation: scaled clicks, review invalidation, draft import 
     ref => ref.images[0].points[0].x = 1001,
     ref => ref.images[0].hScore = 301,
     ref => ref.images[0].hScore = '80',
+    ref => ref.images[0].reviewer = { name: 'Invalid metadata type' },
   ]) {
     const invalid = structuredClone(initial.reference); mutate(invalid);
     const rejection = page.waitForEvent('dialog');
@@ -126,11 +127,19 @@ test('real browser annotation: scaled clicks, review invalidation, draft import 
   await page.waitForFunction(() => document.querySelector('#status').textContent.includes('generated-blank.png'));
   assert.equal(await page.locator('#reviewed').isChecked(), false);
   assert.equal(await page.locator('#h-score').inputValue(), '');
+  assert.equal(await page.locator('#reviewer').inputValue(), '', 'A second image must not inherit the first reviewer');
   await page.locator('#h-score').fill('0');
+  await page.locator('#reviewer').fill('Second synthetic reviewer');
+  await page.locator('#date').fill('2026-10-30');
+  await page.locator('#method').fill('Independent second-image protocol');
   await page.locator('#reviewed').check();
   const complete = await download('#complete');
   assert.equal(complete.name, 'nuclei-reference.json');
-  assert.ok(complete.reference.images.every(image => image.reviewStatus === 'complete' && image.reviewer === 'Synthetic browser workflow fixture'));
+  assert.ok(complete.reference.images.every(image => image.reviewStatus === 'complete'));
+  assert.deepEqual(complete.reference.images.map(image => [image.reviewer, image.reviewedOn, image.method]), [
+    ['Synthetic browser workflow fixture', '2026-10-31', 'Automated UI test on generated pixels; not independent human reference data'],
+    ['Second synthetic reviewer', '2026-10-30', 'Independent second-image protocol'],
+  ]);
   assert.equal(complete.reference.images[1].points.length, 0);
   assert.equal(complete.reference.images[0].hScore, 123.5);
   assert.equal(complete.reference.images[1].hScore, 0);
@@ -140,6 +149,11 @@ test('real browser annotation: scaled clicks, review invalidation, draft import 
   await page.waitForFunction(() => document.querySelector('#status').textContent.includes('generated-tissue.png'));
   assert.equal(await page.locator('#reviewed').isChecked(), true);
   assert.equal(await page.locator('#h-score').inputValue(), '123.5');
+  assert.equal(await page.locator('#reviewer').inputValue(), 'Synthetic browser workflow fixture');
+  await page.locator('#reviewer').fill('Edited reviewer');
+  assert.equal(await page.locator('#reviewed').isChecked(), false, 'Metadata changes must invalidate only the current image review');
+  await page.locator('#reviewer').fill('Synthetic browser workflow fixture');
+  await page.locator('#reviewed').check();
   for (const factor of ['1', '2', '4']) {
     await page.locator('#zoom').selectOption(factor);
     const dimensions = await page.locator('#canvas').evaluate(canvas => ({ width: canvas.getBoundingClientRect().width, height: canvas.getBoundingClientRect().height }));
@@ -163,5 +177,10 @@ test('real browser annotation: scaled clicks, review invalidation, draft import 
   assert.deepEqual((await download('#draft')).reference.images[0].points, zoomDraft.images[0].points, 'Returning to fit must keep draft points');
   await page.locator('#h-score').fill('');
   assert.equal(Object.hasOwn((await download('#draft')).reference.images[0], 'hScore'), false, 'Clearing optional H-score must omit its field');
+  await page.locator('#draft-import').setInputFiles({ name: 'distinct-reviewers.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(complete.reference)) });
+  await page.waitForFunction(() => document.querySelector('#status').textContent.includes('nuclei: 2') && document.querySelector('#h-score').value === '123.5');
+  const roundTrip = (await download('#draft')).reference;
+  assert.deepEqual(roundTrip.images.map(image => [image.reviewer, image.reviewedOn, image.method]), complete.reference.images.map(image => [image.reviewer, image.reviewedOn, image.method]), 'Import and export must preserve each image reviewer, date and protocol');
+  assert.ok(roundTrip.images.every(image => image.reviewStatus === 'pending'));
   assert.deepEqual(errors, []);
 });

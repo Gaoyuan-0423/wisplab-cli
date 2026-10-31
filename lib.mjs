@@ -265,11 +265,20 @@ export async function runIhcEngine({ files, coloc, profile, controlTif, roiManif
           if (roiEntry && (roiEntry.sourceWidth !== dec.sourceWidth || roiEntry.sourceHeight !== dec.sourceHeight)) throw new Error("ROI source dimensions mismatch / ROI 原图尺寸不匹配");
           const scaleX = pixels.width / dec.sourceWidth;
           const scaleY = pixels.height / dec.sourceHeight;
+          // Round the exact source-edge ratio, not a pre-rounded floating scale.
+          // Integer products also avoid ceil(269 * (255 / 269)) incorrectly becoming 256.
+          const projectEdge = (edge, sourceExtent, workingExtent, upper) => {
+            const divisor = BigInt(sourceExtent);
+            const numerator = BigInt(edge) * BigInt(workingExtent);
+            const mapped = Number((numerator + (upper ? divisor - 1n : 0n)) / divisor);
+            return Math.max(0, Math.min(workingExtent, mapped));
+          };
           const roiMapping = { coordinateSpace: "source", sourceWidth: dec.sourceWidth, sourceHeight: dec.sourceHeight,
             workingWidth: pixels.width, workingHeight: pixels.height, scaleX, scaleY,
             rois: (roiEntry?.rois ?? []).map(({ id, name, x, y, w, h }) => {
-              const left = Math.floor(x * scaleX), top = Math.floor(y * scaleY);
-              return { id, name, source: { x, y, w, h }, working: { x: left, y: top, w: Math.ceil((x + w) * scaleX) - left, h: Math.ceil((y + h) * scaleY) - top } };
+              const left = projectEdge(x, dec.sourceWidth, pixels.width, false), top = projectEdge(y, dec.sourceHeight, pixels.height, false);
+              const right = projectEdge(x + w, dec.sourceWidth, pixels.width, true), bottom = projectEdge(y + h, dec.sourceHeight, pixels.height, true);
+              return { id, name, source: { x, y, w, h }, working: { x: left, y: top, w: right - left, h: bottom - top } };
             }) };
           const rois = roiMapping.rois.map(roi => ({ id: roi.id, name: roi.name, ...roi.working }));
           const review = (rgba) => {

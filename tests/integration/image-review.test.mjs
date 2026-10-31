@@ -85,6 +85,33 @@ test('real IHC ROI / IF channels and local image review', { timeout: 180000 }, a
     assert.match(mismatch.files[0].error, /dimensions mismatch/);
   });
 
+  await t.test('rounded source edges keep full-image and one-pixel border ROIs inside working dimensions', async () => {
+    // 269 * (255 / 269) is 255.00000000000003: multiplying a floating scale then ceiling adds a row.
+    const large = write('edge-rounding.png', png(4313, 269, 3, 8, () => [245, 245, 245]));
+    const manifest = { schemaVersion: 'wisplab.rois/v1', images: [{ file: basename(large), sha256: sha256(readFileSync(large)), coordinateSpace: 'source', sourceWidth: 4313, sourceHeight: 269,
+      rois: [
+        { id: 'whole', name: 'Whole', x: 0, y: 0, w: 4313, h: 269 },
+        { id: 'last-row', name: 'Last row', x: 0, y: 268, w: 4313, h: 1 },
+        { id: 'last-column', name: 'Last column', x: 4312, y: 0, w: 1, h: 269 },
+        { id: 'corner', name: 'Bottom-right pixel', x: 4312, y: 268, w: 1, h: 1 },
+      ] }] };
+    const result = await runIhc({ files: [large], roiManifest: manifest, mpp: 0.5, reviewDir: dir });
+    const file = result.files[0]; assert.equal(file.error, undefined);
+    assert.equal(file.width, 4096); assert.equal(file.height, 255);
+    assert.deepEqual(file.roiMapping.rois.map(roi => roi.working), [
+      { x: 0, y: 0, w: 4096, h: 255 }, { x: 0, y: 254, w: 4096, h: 1 },
+      { x: 4095, y: 0, w: 1, h: 255 }, { x: 4095, y: 254, w: 1, h: 1 },
+    ]);
+    for (const [index, { working }] of file.roiMapping.rois.entries()) {
+      assert.ok(working.x >= 0 && working.y >= 0 && working.x + working.w <= file.width && working.y + working.h <= file.height);
+      assert.equal(file.perRoi[index].pixelCount, working.w * working.h, 'Reported ROI extent must equal the region actually measured by the engine');
+    }
+    assert.equal(file.perRoi[0].pixelCount, file.overall.pixelCount);
+    assert.equal(result.review.error, undefined);
+    const overlay = readFileSync(file.artifacts.overlay.path);
+    assert.equal(overlay.readUInt32BE(16), 4096); assert.equal(overlay.readUInt32BE(20), 255);
+  });
+
   await t.test('actual RGB selection changes IF Pearson and is exposed by CLI and MCP', async () => {
     const fluorescence = write('rgb.png', png(64, 32, 3, 8, x => [x * 4, x * 4, (63 - x) * 4]));
     const rg = await runIhc({ files: [fluorescence], coloc: true });

@@ -33,7 +33,7 @@ The annotation page excludes model-predicted points. Reviewers should define nuc
 3. 完整检查当前整图后，勾选“当前整图已完整独立复核”。零核的空白图也必须明确确认，不能将未标注自动视作零核真值。
 4. 随时下载草稿。草稿下载会将所有图的状态写为 `pending`；刷新或关闭页面前先保存，没有自动保存。
 5. 用“继续草稿”载入已有 JSON。工具校验图像身份、SHA-256、原图尺寸、预设、坐标空间及人工来源，并校验点坐标、ID 和标签。导入后所有图重新设为待复核；不匹配的文件不能替换当前标注。
-6. 填写复核者、日期、标注协议，逐图确认完成后下载完整参考。整批任一图未完成时，完整导出会被阻止。
+6. 为当前图填写复核者、日期、标注协议，再确认该图完成。三项信息分别保存在每张图中，切换图像会恢复本图信息，不会把一张图的复核者或协议复制到其余图。修改任一项将撤销当前图复核，草稿导入/导出保留各图原有信息。全部图均完成且各自信息完整后才能下载完整参考。
 
 1. Select an image and use Fit for the full view. Switch to 100%, 200%, or 400% for precise clicks, and pan with scrollbars or a trackpad. Click every nucleus center in Positive or Negative mode. Red/cyan rings indicate annotation points, not nuclear outlines. Zoom and scrolling preserve source coordinates, existing annotations, and review status.
 2. Erase nearest removes a point. Adding or deleting annotations invalidates the current image's review confirmation.
@@ -41,7 +41,7 @@ The annotation page excludes model-predicted points. Reviewers should define nuc
 3. Check Entire image independently reviewed only after reviewing the complete image. Explicitly confirm zero-nucleus images too; unannotated images are not automatically zero-nucleus ground truth.
 4. Save drafts regularly. Draft exports set all images to `pending`; save before reload or closing because there is no autosave.
 5. Resume draft loads a JSON file after checking image identity, SHA-256, source dimensions, profile, coordinate space, manual source, and point coordinates/IDs/labels. Imported images return to pending review. A mismatching draft cannot replace current annotations.
-6. Enter reviewer, date, and protocol, then confirm every image and export the reviewed reference. Any unfinished image blocks complete export.
+6. Enter reviewer, date, and protocol for the current image before confirming its review. These fields are stored separately for each image and restored on image switching; one image's reviewer or protocol is never copied to the others. Editing any field invalidates the current image's review. Draft import/export preserves each image's own details. Complete export requires every image to be reviewed with its own complete metadata.
 
 标注包和下载文件均保留在本地；HTML 包含原图字节，应按实验数据保存。不要把实验图、标注包或含可识别信息的记录提交到公开仓库。
 
