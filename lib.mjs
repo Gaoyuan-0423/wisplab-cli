@@ -206,35 +206,39 @@ async function runIhcEngine({ files, coloc, profile, controlTif }) {
     const out = [];
     for (const path of files) {
       const name = String(path).split("/").pop();
-      const b64 = readFileSync(path).toString("base64");
-      const res = await page.evaluate(async ({ b64, name, coloc, profile, controlThreshold, controlName }) => {
-        const bin = atob(b64);
-        const bytes = new Uint8Array(bin.length);
-        for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
-        const { decodeImageFile } = await import("/src/core/image/decode.ts");
-        const { analyzeStainImage, analyzeColocImage } = await import("/src/core/analysis/engine.ts");
-        const { DEFAULT_THRESHOLD, DEFAULT_SEGMENTATION, DEFAULT_COLOC } = await import("/src/core/types.ts");
-        const dec = await decodeImageFile(new File([bytes], name, { type: /\.tiff?$/i.test(name) ? "image/tiff" : /\.png$/i.test(name) ? "image/png" : "image/jpeg" }));
-        const pixels = dec.pixels;
-        const source = { sourceWidth: dec.sourceWidth, sourceHeight: dec.sourceHeight, workingScale: dec.workingScale, sourceType: dec.sourceType, bitsPerSample: dec.bitsPerSample, note: dec.note ?? null };
-        if (coloc) {
-          const r = analyzeColocImage(pixels, JSON.parse(JSON.stringify(DEFAULT_COLOC)));
-          return { ...source, settings: { coloc: DEFAULT_COLOC }, coloc: r.coloc, overall: r.overall, warnings: r.warnings, width: pixels.width, height: pixels.height };
-        }
-        const threshold = controlThreshold !== null && controlThreshold !== undefined
-          ? { ...JSON.parse(JSON.stringify(DEFAULT_THRESHOLD)), mode: "control", controlThreshold, controlImageName: controlName }
-          : JSON.parse(JSON.stringify(DEFAULT_THRESHOLD));
-        const r = analyzeStainImage({
-          pixels, rois: [], profileId: profile, threshold,
-          segmentation: JSON.parse(JSON.stringify(DEFAULT_SEGMENTATION)),
-          calibration: { mpp: null }, stainOverride: null,
-        });
-        return {
-          ...source, settings: { profile, threshold, segmentation: DEFAULT_SEGMENTATION, calibration: { mpp: null } }, overall: r.overall, thresholdUsed: r.thresholdUsed, backgroundLevel: r.backgroundLevel,
-          warnings: r.warnings, qc: r.qc, width: pixels.width, height: pixels.height,
-        };
-      }, { b64, name, coloc, profile, controlThreshold, controlName });
-      out.push({ file: name, ...res });
+      try {
+        const b64 = readFileSync(path).toString("base64");
+        const res = await page.evaluate(async ({ b64, name, coloc, profile, controlThreshold, controlName }) => {
+          const bin = atob(b64);
+          const bytes = new Uint8Array(bin.length);
+          for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
+          const { decodeImageFile } = await import("/src/core/image/decode.ts");
+          const { analyzeStainImage, analyzeColocImage } = await import("/src/core/analysis/engine.ts");
+          const { DEFAULT_THRESHOLD, DEFAULT_SEGMENTATION, DEFAULT_COLOC } = await import("/src/core/types.ts");
+          const dec = await decodeImageFile(new File([bytes], name, { type: /\.tiff?$/i.test(name) ? "image/tiff" : /\.png$/i.test(name) ? "image/png" : "image/jpeg" }));
+          const pixels = dec.pixels;
+          const source = { sourceWidth: dec.sourceWidth, sourceHeight: dec.sourceHeight, workingScale: dec.workingScale, sourceType: dec.sourceType, bitsPerSample: dec.bitsPerSample, note: dec.note ?? null };
+          if (coloc) {
+            const r = analyzeColocImage(pixels, JSON.parse(JSON.stringify(DEFAULT_COLOC)));
+            return { ...source, settings: { coloc: DEFAULT_COLOC }, coloc: r.coloc, overall: r.overall, warnings: r.warnings, width: pixels.width, height: pixels.height };
+          }
+          const threshold = controlThreshold !== null && controlThreshold !== undefined
+            ? { ...JSON.parse(JSON.stringify(DEFAULT_THRESHOLD)), mode: "control", controlThreshold, controlImageName: controlName }
+            : JSON.parse(JSON.stringify(DEFAULT_THRESHOLD));
+          const r = analyzeStainImage({
+            pixels, rois: [], profileId: profile, threshold,
+            segmentation: JSON.parse(JSON.stringify(DEFAULT_SEGMENTATION)),
+            calibration: { mpp: null }, stainOverride: null,
+          });
+          return {
+            ...source, settings: { profile, threshold, segmentation: DEFAULT_SEGMENTATION, calibration: { mpp: null } }, overall: r.overall, thresholdUsed: r.thresholdUsed, backgroundLevel: r.backgroundLevel,
+            warnings: r.warnings, qc: r.qc, width: pixels.width, height: pixels.height,
+          };
+        }, { b64, name, coloc, profile, controlThreshold, controlName });
+        out.push({ file: name, ...res });
+      } catch (error) {
+        out.push({ file: name, error: String(error?.message ?? error) });
+      }
     }
     return { files: out, coloc, profile: coloc ? "if_coloc" : profile, controlThreshold, controlImageName: controlName };
   } finally {
