@@ -75,3 +75,39 @@ test('constant paired differences and fewer than two complete pairs are reported
  const missing=analyzeBiologicalGroups(rows.map(r=>({...r,excluded:r.sample==='S2'})),opts,api).comparisons[0];
  assert.equal(missing.reason,'insufficient-complete-pairs');assert.equal(missing.nPairs,1);assert.equal(missing.foldChangeCI95,null);
 });
+
+test('optional references use their own efficiencies before geometric pooling, including means of 100%',()=>{
+ const data=Object.keys(design.samples).flatMap((sample,i)=>[
+   {sample,target:'T',cq:25+(i%2)*.1},
+   {sample,target:'R1',cq:i<2?20:30},
+   {sample,target:'R2',cq:i<2?30:20},
+ ]);
+ const opts={biologicalDesign:design,refGenes:['R1','R2'],efficiencies:{T:100,R1:90,R2:110}};
+ const result=analyzeBiologicalGroups(data,opts,api),comparison=result.comparisons[0];
+ // Independent R 4.5.3, in quantity space: 1/sqrt(1.9^(-10)*2.1^10).
+ assert.ok(Math.abs(comparison.foldChange-0.60627761164574501)<1e-12);
+ assert.ok(Math.abs(comparison.log2FoldChange-(-0.7219495466758747))<1e-12);
+ assert.deepEqual(result.comparisons,analyzeBiologicalGroups(data,{...opts,refGenes:['R2','R1']},api).comparisons);
+ const duplicated=data.flatMap(row=>row.target==='R1'?[row,row,row,row]:[row]);
+ assert.deepEqual(result.summaries,analyzeBiologicalGroups(duplicated,opts,api).summaries);
+ const defaulted=analyzeBiologicalGroups(data,{...opts,efficiencies:{}},api);
+ const all100=analyzeBiologicalGroups(data,{...opts,efficiencies:{T:100,R1:100,R2:100}},api);
+ assert.deepEqual(defaulted.comparisons,all100.comparisons);
+ assert.equal(defaulted.comparisons[0].foldChange,1);
+});
+
+test('unequal reference efficiencies match independent R normalized quantities before paired inference',()=>{
+ const samples={C1:'C',C2:'C',C3:'C',S1:'S',S2:'S',S3:'S'};
+ const target=[25,25.3,24.7,24,23.8,24.2],r1=[20,21,19,30,29.5,30.5],r2=[30,29,31,20,20.5,19.5];
+ const data=Object.keys(samples).flatMap((sample,i)=>[{sample,target:'T',cq:target[i]},{sample,target:'R1',cq:r1[i]},{sample,target:'R2',cq:r2[i]}]);
+ const pairIds=Object.fromEntries(Object.keys(samples).map(sample=>[sample,sample.slice(1)]));
+ const result=analyzeBiologicalGroups(data,{refGenes:['R1','R2'],efficiencies:{T:95,R1:90,R2:110},
+   biologicalDesign:{samples,controlGroup:'C',paired:true,pairIds}},api);
+ const expected=[1.22898100456105186,.86774381270099787,1.59021819642110551,1.47050558186006297,1.69929788398883330,1.24171327973129286];
+ result.units.forEach((unit,i)=>assert.ok(Math.abs(unit.log2Expression-expected[i])<1e-12));
+ const c=result.comparisons[0];
+ assert.ok(Math.abs(c.foldChange-1.1822413427092027)<1e-12);
+ assert.ok(Math.abs(c.pValue-.55182762196002455)<1e-10);
+ assert.ok(Math.abs(c.log2FoldChangeCI95[0]-(-1.2241899397635911))<1e-10);
+ assert.ok(Math.abs(c.log2FoldChangeCI95[1]-1.7072390943616138)<1e-10);
+});
