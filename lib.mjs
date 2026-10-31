@@ -7,6 +7,7 @@ import { homedir, tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { trackAnalysisSync, trackAnalysis } from "./provenance.mjs";
+import { readEngineLock, checkEngineRevision } from "./engine-lock.mjs";
 import { normalizeBiologicalDesign } from "./pcr-groups.mjs";
 import { normalizePcrOptions } from "./pcr-options.mjs";
 
@@ -255,8 +256,9 @@ async function runIhcEngine({ files, coloc, profile, controlTif }) {
 
 
 /** Local readiness and revision report; does not fetch or modify engine repositories. */
-export function doctor() {
+export function doctor({ strict = false } = {}) {
   const cfg = config();
+  const lock = readEngineLock();
   const requirements = {
     wb: ["node_modules/.bin/tsx", "src/real/pixels.ts", "src/real/rolling-ball.ts"],
     pcr: ["node_modules/.bin/tsx", "src/core/analysis.ts", "src/core/sniff.ts", "src/core/parse.ts", "src/core/qc.ts", "src/core/stats.ts"],
@@ -265,7 +267,6 @@ export function doctor() {
   const engines = Object.fromEntries(Object.entries(requirements).map(([name, files]) => {
     const path = cfg.repos[name];
     const missing = files.filter((file) => !path || !existsSync(join(path, file)));
-    const git = (args) => path ? spawnSync("git", ["-C", path, ...args], { encoding: "utf8" }).stdout?.trim() || null : null;
     let browser = null;
     if (name === "ihc" && path) {
       try {
@@ -274,7 +275,9 @@ export function doctor() {
         if (!existsSync(browser)) missing.push("Playwright Chromium (run npx playwright install chromium in pathology-workbench)");
       } catch { missing.push("playwright package"); }
     }
-    return [name, { path: path ?? null, ready: missing.length === 0, missing, revision: git(["rev-parse", "HEAD"]), dirty: Boolean(git(["status", "--porcelain"])), ...(browser ? { browser } : {}) }];
+    return [name, { path: path ?? null, ready: missing.length === 0, missing, ...checkEngineRevision(path ?? "", lock.engines[name].revision), ...(browser ? { browser } : {}) }];
   }));
-  return { node: process.version, config: cfg.path, ready: Object.values(engines).every((e) => e.ready), engines };
+  const ready = Object.values(engines).every(e => e.ready);
+  const verified = ready && Object.values(engines).every(e => e.verified);
+  return { node: process.version, config: cfg.path, ready, verified, strict, engines };
 }
