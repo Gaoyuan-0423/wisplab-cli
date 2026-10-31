@@ -1,5 +1,13 @@
 # Changelog / 更新记录
 
+## 0.8.1 — 2026-10-31
+
+- 修正自选多个不同效率内参时的 qPCR 归一化，先逐基因换算再汇总；单内参继续支持，不增加数量要求。 / Correct optional multiple-reference normalization using each gene's efficiency before pooling; preserve single-reference support.
+- 生物学分组没有任何可用处理/对照效应时报告错误并保留 QC/NTC 诊断；描述性效应不因缺少 p 值或区间而失败。 / Report an error when no biological treatment/control effect is available, retaining diagnostics; descriptive effects remain valid without p-values or intervals.
+- worker 执行、IHC 重启和追溯固定使用同一配置快照；IHC 哈希与 Git 追溯异步化，可响应 MCP ping 与取消。 / Keep workers, IHC restarts and provenance on one configuration snapshot; make IHC hashing and Git checks asynchronous and cancellable.
+- 修正大图 ROI 缩放边界的浮点溢出，报告的坐标与实际测量边界一致。 / Correct scaled ROI rounding at image boundaries so reported and measured bounds agree.
+- 标注草稿保存每张图各自的审核人、日期和方法，编辑仅撤销当前图的完成状态。 / Preserve each image's reviewer, date and protocol in annotation drafts; edits invalidate only the current image's review.
+
 ## 0.8.0 — 2026-10-31
 
 - WB 逐图错误隔离；IHC/IF 单图及整批时限、取消清理和进度；MCP 长任务不阻塞 ping/取消。 / Isolate WB image errors; bounded/cancellable analysis with progress and responsive MCP control messages.

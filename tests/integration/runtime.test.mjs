@@ -37,6 +37,21 @@ test('real IHC timeout and cancellation stop Chromium and free the port for a su
 });
 
 
+test('real IHC execution and hashes retain the initial input after caller array mutation', { timeout: 30000 }, async t => {
+  const dir = mkdtempSync(join(tmpdir(), 'wisplab-real-input-snapshot-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const cfg = { ...loadConfig(), ihc: { devPort: await freePort() } };
+  const file = join(dir, 'original.png'); writeFileSync(file, histology());
+  const files = [file], pending = runIhc({ files }, cfg);
+  files[0] = join(dir, 'missing-replacement.png');
+  const result = await pending;
+  assert.equal(result.files.length, 1);
+  assert.equal(result.files[0].file, 'original.png');
+  assert.equal(result.files[0].error, undefined);
+  assert.equal(result.provenance.inputs[0].file, 'original.png');
+  assert.equal(result.provenance.checks.inputsUnchanged, true);
+});
+
 test('real WB preserves good-corrupt-good files and reports partial failure', () => {
   config(process.env.WISPLAB_CONFIG);
   const dir = mkdtempSync(join(tmpdir(), 'wisplab-real-wb-batch-'));

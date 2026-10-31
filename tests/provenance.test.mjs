@@ -42,3 +42,32 @@ test('async analysis fingerprints controls and distinguishes partial errors',asy
  assert.equal(result.provenance.inputs[1].role,'control');assert.equal(result.provenance.status,'partial-error');
  assert.equal(result.provenance.inputs[1].before.sha256,createHash('sha256').update(readFileSync(control)).digest('hex'));
 });
+
+test('async tracing preserves the synchronous manifest fields and detects source/input mutations', async t => {
+ const f=fixture(t), value={files:[{file:'input.csv',results:[1]}]};
+ const sync=trackAnalysisSync(f.spec,()=>value).provenance;
+ const asyncResult=(await trackAnalysis(f.spec,async()=>value)).provenance;
+ for(const key of ['schemaVersion','analysis','status','runtime','cli','engine','parameters','inputs','resolvedParameters','checks','warnings','error'])
+   assert.deepEqual(asyncResult[key],sync[key],key);
+ const changed=await trackAnalysis(f.spec,async()=>{
+   writeFileSync(f.input,'changed');writeFileSync(join(f.engine,'source.txt'),'changed');return value;
+ });
+ assert.equal(changed.provenance.checks.inputsUnchanged,false);
+ assert.equal(changed.provenance.checks.engineUnchanged,false);
+ await assert.rejects(trackAnalysis(f.spec,async()=>{throw new Error('decode failed');}),error=>{
+   assert.equal(error.provenance.status,'error');assert.equal(error.provenance.error,'decode failed');return true;
+ });
+});
+
+test('cancellation before tracing prevents analysis and cancellation after analysis retains completed results', async t => {
+ const f=fixture(t), before=new AbortController();before.abort();let ran=false;
+ await assert.rejects(trackAnalysis(f.spec,async()=>{ran=true;return {};},{signal:before.signal}),{code:'CANCELLED'});
+ assert.equal(ran,false);
+ const after=new AbortController();
+ const result=await trackAnalysis(f.spec,async()=>{after.abort();return {files:[{file:'ok.png',value:42}]};},{signal:after.signal});
+ assert.equal(result.code,'CANCELLED');assert.equal(result.runtime.cancelled,true);
+ assert.equal(result.files[0].value,42);assert.equal(result.provenance.status,'partial-error');
+ assert.deepEqual(result.provenance.checks,{inputsUnchanged:false,engineUnchanged:false,bridgeUnchanged:false});
+ assert.equal(result.provenance.inputs[0].after.error,'CANCELLED');
+ assert.match(result.provenance.error,/cancelled/);
+});

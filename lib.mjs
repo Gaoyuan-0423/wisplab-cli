@@ -2,7 +2,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -39,6 +39,21 @@ export function loadConfig(configPath) {
 let cachedCfg = null;
 export function config(overridePath) {
   if (!cachedCfg || overridePath) cachedCfg = loadConfig(overridePath);
+  return cachedCfg;
+}
+
+// Workers install the already resolved parent configuration. path identifies its source;
+// it is never read again, so edits/deletion cannot change a running job's engine.
+export function installConfigSnapshot(snapshot) {
+  const cfg = structuredClone(snapshot);
+  const absolute = value => typeof value === "string" && isAbsolute(value);
+  if (!cfg || typeof cfg !== "object" || Array.isArray(cfg) || !absolute(cfg.path) ||
+      !cfg.repos || typeof cfg.repos !== "object" || Array.isArray(cfg.repos) ||
+      Object.values(cfg.repos).some(value => !absolute(value)) ||
+      !Array.isArray(cfg.allowPaths) || cfg.allowPaths.some(value => !absolute(value)) ||
+      !Number.isInteger(cfg.ihc?.devPort) || cfg.ihc.devPort < 1 || cfg.ihc.devPort > 65535)
+    throw new Error("Invalid resolved configuration snapshot");
+  cachedCfg = cfg;
   return cachedCfg;
 }
 
@@ -143,17 +158,21 @@ export function runVerifyPcr(dir) {
   return { exitCode: c.status ?? 1, output: (c.stdout || "") + (c.stderr || "") };
 }
 
-export async function runIhc({ files, coloc = false, profile = "h_dab", controlTif = null, runtime = {}, roiManifest = null, channels = null, mpp = null, includeNuclei = false, reviewDir = null }) {
+export async function runIhc({ files, coloc = false, profile = "h_dab", controlTif = null, runtime = {}, roiManifest = null, channels = null, mpp = null, includeNuclei = false, reviewDir = null }, resolvedConfig = null) {
   validateFiles(files);
+  // Initial provenance is asynchronous: keep execution bound to the input list
+  // validated here even if the caller reuses its array while this promise runs.
+  files = [...files];
   if (!["h_dab", "h_eosin", "masson", "if_coloc"].includes(profile)) throw new Error("Unsupported stain profile");
   if (controlTif && (coloc || profile !== "h_dab")) throw new Error("对照片标定仅支持 H-DAB / Control calibration supports H-DAB only");
   runtime = normalizeRuntime(runtime);
   const imageOptions = normalizeImageOptions({ files, coloc, roiManifest, channels, mpp, includeNuclei, reviewDir });
-  const parameters = { coloc, profile: coloc ? "if_coloc" : profile, controlTif: controlTif ? "input-with-role-control" : null, devPort: config().ihc.devPort, ...imageOptions, reviewDir: imageOptions.reviewDir ? "local-review-export" : null };
+  const cfg = structuredClone(resolvedConfig ?? config());
+  const parameters = { coloc, profile: coloc ? "if_coloc" : profile, controlTif: controlTif ? "input-with-role-control" : null, devPort: cfg.ihc.devPort, ...imageOptions, reviewDir: imageOptions.reviewDir ? "local-review-export" : null };
   const inputs = files.map(path => ({path}));
   if (controlTif) inputs.push({path: controlTif, role: "control"});
-  const result = await trackAnalysis({ analysis: coloc ? "if" : "ihc", engineDir: repo("ihc"), bridgeDir: CLI_DIR, parameters, inputs },
-    () => runIhcBatch({files, coloc, profile, controlTif, ...imageOptions}, config(), runtime));
+  const result = await trackAnalysis({ analysis: coloc ? "if" : "ihc", engineDir: repo("ihc", cfg.repos.ihc), bridgeDir: CLI_DIR, parameters, inputs },
+    () => runIhcBatch({files, coloc, profile, controlTif, ...imageOptions}, cfg, runtime), { signal: runtime.signal });
   if (result.error) {
     result.provenance.status = result.files.some(file => !file.error) ? "partial-error" : "error";
     result.provenance.error = result.error;
@@ -249,11 +268,20 @@ export async function runIhcEngine({ files, coloc, profile, controlTif, roiManif
           if (roiEntry && (roiEntry.sourceWidth !== dec.sourceWidth || roiEntry.sourceHeight !== dec.sourceHeight)) throw new Error("ROI source dimensions mismatch / ROI 原图尺寸不匹配");
           const scaleX = pixels.width / dec.sourceWidth;
           const scaleY = pixels.height / dec.sourceHeight;
+          // Round the exact source-edge ratio, not a pre-rounded floating scale.
+          // Integer products also avoid ceil(269 * (255 / 269)) incorrectly becoming 256.
+          const projectEdge = (edge, sourceExtent, workingExtent, upper) => {
+            const divisor = BigInt(sourceExtent);
+            const numerator = BigInt(edge) * BigInt(workingExtent);
+            const mapped = Number((numerator + (upper ? divisor - 1n : 0n)) / divisor);
+            return Math.max(0, Math.min(workingExtent, mapped));
+          };
           const roiMapping = { coordinateSpace: "source", sourceWidth: dec.sourceWidth, sourceHeight: dec.sourceHeight,
             workingWidth: pixels.width, workingHeight: pixels.height, scaleX, scaleY,
             rois: (roiEntry?.rois ?? []).map(({ id, name, x, y, w, h }) => {
-              const left = Math.floor(x * scaleX), top = Math.floor(y * scaleY);
-              return { id, name, source: { x, y, w, h }, working: { x: left, y: top, w: Math.ceil((x + w) * scaleX) - left, h: Math.ceil((y + h) * scaleY) - top } };
+              const left = projectEdge(x, dec.sourceWidth, pixels.width, false), top = projectEdge(y, dec.sourceHeight, pixels.height, false);
+              const right = projectEdge(x + w, dec.sourceWidth, pixels.width, true), bottom = projectEdge(y + h, dec.sourceHeight, pixels.height, true);
+              return { id, name, source: { x, y, w, h }, working: { x: left, y: top, w: right - left, h: bottom - top } };
             }) };
           const rois = roiMapping.rois.map(roi => ({ id: roi.id, name: roi.name, ...roi.working }));
           const review = (rgba) => {

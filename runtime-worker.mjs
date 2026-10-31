@@ -6,9 +6,9 @@ process.on('SIGTERM', () => process.exit(143));
 process.on('SIGINT', () => process.exit(130));
 
 const send = message => new Promise((resolve, reject) => process.send(message, error => error ? reject(error) : resolve()));
-process.once('message', async ({ operation, args, configPath, runtime }) => {
+process.once('message', async ({ operation, args, configSnapshot, runtime }) => {
   try {
-    lib.config(configPath);
+    lib.installConfigSnapshot(configSnapshot);
     let result;
     if (operation === 'ihc-engine') {
       result = await lib.runIhcEngine({ ...args, onEvent: event => process.send({ type: 'event', event }) });

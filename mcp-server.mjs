@@ -225,7 +225,7 @@ export function createMcpHandler({ cfg, engine = lib, notify = () => {} }) {
     runWb: ({ runtime, ...args }) => runAnalysisJob("wb", args, cfg, runtime),
     runPcr: ({ runtime, ...args }) => runAnalysisJob("pcr", args, cfg, runtime),
     previewPcr: ({ runtime, ...args }) => runAnalysisJob("pcr-preview", args, cfg, runtime),
-    runIhc: args => lib.runIhc(args),
+    runIhc: args => lib.runIhc(args, cfg),
     runVerifyPcr: (dir, runtime) => runAnalysisJob("verify-pcr", { dir }, cfg, runtime),
   };
   const active = new Map();

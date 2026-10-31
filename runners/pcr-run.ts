@@ -73,6 +73,9 @@ for (const path of payload.files) {
       results: out.results,
     });
     record.biologicalGroups = analyzeBiologicalGroups(prepared.rows, { ...payload, efficiencies }, { mean, sd, welchTTest, isNtcRow, isStandardRow });
+    if (grouped && !record.biologicalGroups.comparisons.some(comparison => Number.isFinite(comparison.log2FoldChange))) {
+      record.error = "No usable biological treatment/control effect; inspect missing targets/references, complete pairs and QC exclusions / 无可用生物学处理与对照效应，请检查靶标/内参缺失、完整配对及质控排除";
+    }
     record.primaryAnalysis = {
       kind: grouped ? "biological-groups" : "well-level",
       statisticalUnit: grouped ? "biological-sample" : "well",

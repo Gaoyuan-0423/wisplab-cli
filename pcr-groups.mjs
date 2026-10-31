@@ -71,10 +71,12 @@ export function analyzeBiologicalGroups(rows, options, { mean, sd, welchTTest, i
       const missingRefs=refs.filter((_,i)=>!refValues[i].length);
       const reason=!targetValues.length?'missing-target':missingRefs.length?'missing-reference':null;
       const refCq=reason?null:mean(refValues.map(mean));
+      // Normalize each selected reference with its own efficiency before geometric pooling.
+      const referenceLog2Scale=reason?null:mean(refValues.map((values,i)=>mean(values)*Math.log2(1+eff(refs[i])/100)));
       const meanCq=reason?null:mean(targetValues);
       const unit={sample,group,target,...(design.paired?{pairId:design.pairIds[sample]}:{}),technicalWellCount:targetValues.length,missingRefs,reason,
         deltaCt:reason?null:meanCq-refCq,
-        log2Expression:reason?null:-meanCq*Math.log2(1+eff(target)/100)+refCq*Math.log2(1+mean(refs.map(eff))/100)};
+        log2Expression:reason?null:-meanCq*Math.log2(1+eff(target)/100)+referenceLog2Scale};
       targetUnits.push(unit);units.push(unit);
     }
     const controlUnits=targetUnits.filter(u=>u.group===design.controlGroup);

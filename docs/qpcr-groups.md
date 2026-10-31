@@ -39,9 +39,13 @@ Use each qPCR file's `primaryAnalysis` as the preferred reporting entry. A succe
 
 If a requested group design fails, the primary result remains a biological-group error and never falls back to well-level statistics. Legacy `results` and detailed `biologicalGroups` remain for compatibility/detail; do not use legacy per-well p-values as group conclusions. Available QC/NTC diagnostics can still be reviewed independently. A null statistic is unavailable, not evidence of nonsignificance.
 
-After explicit QC, technical Cq values are averaged within each sample/target; selected reference means are equally weighted. Each biological sample contributes one log2 normalized expression:
+After explicit QC, technical Cq values are averaged within each sample/target; selected reference genes are equally weighted **after applying each gene's own efficiency**. Each biological sample contributes one log2 normalized expression:
 
-`L = -meanCq(target) * log2(1 + efficiency(target)/100) + meanReferenceCq * log2(1 + meanReferenceEfficiency/100)`.
+`L = -meanCq(target) * log2(1 + efficiency(target)/100) + mean_over_selected_refs(meanCq(ref) * log2(1 + efficiency(ref)/100))`.
+
+每个自选内参必须先按自身效率换算，再取表达量的几何均值（等价于平均上述 log2 项）；不能先平均效率。单内参公式保持不变，多个内参仍为可选。推导和独立数值基准见[效率与缺失结果边界](pcr-correctness.md)。
+
+Do not average reference efficiencies before converting Cq to quantity. One reference retains the same formula; multiple references remain optional. See [efficiency and missing-result boundaries](pcr-correctness.md) for derivation and independent numerical references.
 
 With 100% efficiencies, L = −ΔCt. Unpaired group fold change is `2^(mean(L_group) − mean(L_control))`, with equal biological sample weights; it is a ratio of geometric means, not the legacy mean of per-well fold changes. RDML efficiencies and explicit overrides use the same precedence as normal analysis. Every selected reference must have retained data within a biological sample; incomplete samples stay listed with reasons and are omitted for that target.
 
@@ -55,4 +59,6 @@ Comparisons return `confidenceLevel: 0.95`, `log2FoldChangeCI95` and `foldChange
 
 Method references: [NIST Welch–Satterthwaite test](https://www.itl.nist.gov/div898/handbook/eda/section3/eda353.htm), [R Holm adjustment documentation](https://stat.ethz.ch/R-manual/R-devel/library/stats/html/p.adjust.html).
 
-`primaryAnalysis.method` 与 `multiplicityFamilySize` 标记方法及生物学比较的校正范围。`status: success` 只代表计算完成；样本不足等情况的 p 值仍可能为 `null`，不能解释成不显著。 / The primary entry includes its method and biological multiplicity-family size. A successful computation can still contain unavailable (null) statistics, which are not evidence of nonsignificance.
+`primaryAnalysis.method` 与 `multiplicityFamilySize` 标记方法及生物学比较的校正范围。若所有计划处理/对照比较都无法产生有限的 `log2FoldChange`（例如处理样本的已选内参全部缺失或被 QC 排除、无完整配对），文件和主结果为 `error`，即使旧逐孔结果仍有对照行。QC/NTC、缺失样本和配对明细继续保留。只剩一个有效样本或完整配对但仍有有限效应量时，仍可返回描述性成功结果；不可计算的 p/CI 保持 `null`，不能解释成不显著。
+
+The primary entry includes its method and biological multiplicity-family size. If every planned treatment/control comparison lacks a finite `log2FoldChange` (for example, all treatment references are missing or QC-excluded, or no complete pairs remain), the file and primary result are errors even if legacy control rows exist. QC/NTC, missing-sample and pairing details remain available. One usable biological sample or complete pair can still produce a successful descriptive effect; unavailable p-values and intervals remain null, not evidence of nonsignificance.
