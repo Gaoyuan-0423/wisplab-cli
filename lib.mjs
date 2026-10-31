@@ -11,6 +11,7 @@ import { trackAnalysisSync, trackAnalysis } from "./provenance.mjs";
 import { readEngineLock, checkEngineRevision } from "./engine-lock.mjs";
 import { normalizeBiologicalDesign } from "./pcr-groups.mjs";
 import { normalizePcrOptions } from "./pcr-options.mjs";
+import { normalizeImageOptions, saveImageReview, sha256 } from "./image-review.mjs";
 
 export const CLI_DIR = dirname(fileURLToPath(import.meta.url));
 
@@ -133,24 +134,25 @@ export function runVerifyPcr(dir) {
   return { exitCode: c.status ?? 1, output: (c.stdout || "") + (c.stderr || "") };
 }
 
-export async function runIhc({ files, coloc = false, profile = "h_dab", controlTif = null, runtime = {} }) {
+export async function runIhc({ files, coloc = false, profile = "h_dab", controlTif = null, runtime = {}, roiManifest = null, channels = null, mpp = null, includeNuclei = false, reviewDir = null }) {
   validateFiles(files);
   if (!["h_dab", "h_eosin", "masson", "if_coloc"].includes(profile)) throw new Error("Unsupported stain profile");
   if (controlTif && (coloc || profile !== "h_dab")) throw new Error("对照片标定仅支持 H-DAB / Control calibration supports H-DAB only");
   runtime = normalizeRuntime(runtime);
-  const parameters = { coloc, profile: coloc ? "if_coloc" : profile, controlTif: controlTif ? "input-with-role-control" : null, devPort: config().ihc.devPort };
+  const imageOptions = normalizeImageOptions({ files, coloc, roiManifest, channels, mpp, includeNuclei, reviewDir });
+  const parameters = { coloc, profile: coloc ? "if_coloc" : profile, controlTif: controlTif ? "input-with-role-control" : null, devPort: config().ihc.devPort, ...imageOptions, reviewDir: imageOptions.reviewDir ? "local-review-export" : null };
   const inputs = files.map(path => ({path}));
   if (controlTif) inputs.push({path: controlTif, role: "control"});
   const result = await trackAnalysis({ analysis: coloc ? "if" : "ihc", engineDir: repo("ihc"), bridgeDir: CLI_DIR, parameters, inputs },
-    () => runIhcBatch({files, coloc, profile, controlTif}, config(), runtime));
+    () => runIhcBatch({files, coloc, profile, controlTif, ...imageOptions}, config(), runtime));
   if (result.error) {
     result.provenance.status = result.files.some(file => !file.error) ? "partial-error" : "error";
     result.provenance.error = result.error;
   }
-  return result;
+  return imageOptions.reviewDir ? saveImageReview(result, imageOptions.reviewDir) : result;
 }
 
-export async function runIhcEngine({ files, coloc, profile, controlTif, onEvent = () => {} }) {
+export async function runIhcEngine({ files, coloc, profile, controlTif, roiManifest = null, channels = ["R", "G"], mpp = null, includeNuclei = false, reviewDir = null, onEvent = () => {} }) {
   validateFiles(files);
   if (!["h_dab", "h_eosin", "masson", "if_coloc"].includes(profile)) throw new Error("Unsupported stain profile");
   if (controlTif && (coloc || profile !== "h_dab")) throw new Error("对照片标定仅支持 H-DAB / Control calibration supports H-DAB only");
@@ -220,8 +222,12 @@ export async function runIhcEngine({ files, coloc, profile, controlTif, onEvent 
       const name = String(path).split("/").pop();
       onEvent({kind: "file-start", role: "input", file: name});
       try {
-        const b64 = readFileSync(path).toString("base64");
-        const res = await page.evaluate(async ({ b64, name, coloc, profile, controlThreshold, controlName }) => {
+        const inputBytes = readFileSync(path);
+        const inputSha256 = sha256(inputBytes);
+        const roiEntry = roiManifest?.images.find(entry => entry.file === name) ?? null;
+        if (roiEntry && roiEntry.sha256 !== inputSha256) throw new Error("ROI image SHA-256 mismatch / ROI 图像哈希不匹配");
+        const b64 = inputBytes.toString("base64");
+        const res = await page.evaluate(async ({ b64, name, coloc, profile, controlThreshold, controlName, roiEntry, channels, mpp, includeNuclei, exportReview }) => {
           const bin = atob(b64);
           const bytes = new Uint8Array(bin.length);
           for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
@@ -231,24 +237,60 @@ export async function runIhcEngine({ files, coloc, profile, controlTif, onEvent 
           const dec = await decodeImageFile(new File([bytes], name, { type: /\.tiff?$/i.test(name) ? "image/tiff" : /\.png$/i.test(name) ? "image/png" : "image/jpeg" }));
           const pixels = dec.pixels;
           const source = { sourceWidth: dec.sourceWidth, sourceHeight: dec.sourceHeight, workingScale: dec.workingScale, sourceType: dec.sourceType, bitsPerSample: dec.bitsPerSample, note: dec.note ?? null };
+          if (roiEntry && (roiEntry.sourceWidth !== dec.sourceWidth || roiEntry.sourceHeight !== dec.sourceHeight)) throw new Error("ROI source dimensions mismatch / ROI 原图尺寸不匹配");
+          const scaleX = pixels.width / dec.sourceWidth;
+          const scaleY = pixels.height / dec.sourceHeight;
+          const roiMapping = { coordinateSpace: "source", sourceWidth: dec.sourceWidth, sourceHeight: dec.sourceHeight,
+            workingWidth: pixels.width, workingHeight: pixels.height, scaleX, scaleY,
+            rois: (roiEntry?.rois ?? []).map(({ id, name, x, y, w, h }) => {
+              const left = Math.floor(x * scaleX), top = Math.floor(y * scaleY);
+              return { id, name, source: { x, y, w, h }, working: { x: left, y: top, w: Math.ceil((x + w) * scaleX) - left, h: Math.ceil((y + h) * scaleY) - top } };
+            }) };
+          const rois = roiMapping.rois.map(roi => ({ id: roi.id, name: roi.name, ...roi.working }));
+          const review = (rgba) => {
+            if (!exportReview) return {};
+            const canvas = document.createElement("canvas");
+            canvas.width = pixels.width; canvas.height = pixels.height;
+            const ctx = canvas.getContext("2d");
+            if (!ctx) throw new Error("Cannot create review image canvas");
+            ctx.putImageData(pixels, 0, 0);
+            const original = canvas.toDataURL("image/png");
+            const layer = document.createElement("canvas");
+            layer.width = pixels.width; layer.height = pixels.height;
+            const layerCtx = layer.getContext("2d");
+            if (!layerCtx) throw new Error("Cannot create overlay canvas");
+            layerCtx.putImageData(new ImageData(new Uint8ClampedArray(rgba), pixels.width, pixels.height), 0, 0);
+            ctx.drawImage(layer, 0, 0);
+            ctx.strokeStyle = "#00ffff"; ctx.lineWidth = Math.max(1, Math.round(pixels.width / 1000));
+            for (const roi of rois) ctx.strokeRect(roi.x, roi.y, roi.w, roi.h);
+            return { reviewImages: { original, overlay: canvas.toDataURL("image/png") } };
+          };
           if (coloc) {
-            const r = analyzeColocImage(pixels, JSON.parse(JSON.stringify(DEFAULT_COLOC)));
-            return { ...source, settings: { coloc: DEFAULT_COLOC }, coloc: r.coloc, overall: r.overall, warnings: r.warnings, width: pixels.width, height: pixels.height };
+            const colocConfig = { ...JSON.parse(JSON.stringify(DEFAULT_COLOC)), channelA: ["R", "G", "B"].indexOf(channels[0]), channelB: ["R", "G", "B"].indexOf(channels[1]) };
+            const r = analyzeColocImage(pixels, colocConfig);
+            return { ...source, roiMapping, settings: { coloc: colocConfig, channels }, coloc: r.coloc, overall: r.overall, warnings: r.warnings, width: pixels.width, height: pixels.height, ...review(r.overlayRgba) };
           }
           const threshold = controlThreshold !== null && controlThreshold !== undefined
             ? { ...JSON.parse(JSON.stringify(DEFAULT_THRESHOLD)), mode: "control", controlThreshold, controlImageName: controlName }
             : JSON.parse(JSON.stringify(DEFAULT_THRESHOLD));
+          // Area-equivalent working mpp uses both actual resize dimensions (rounding may differ by axis).
+          const calibration = { mpp: mpp === null ? null : mpp / Math.sqrt(scaleX * scaleY) };
+          const physicalArea = calibration.mpp === null ? null : pixels.width * pixels.height * calibration.mpp * calibration.mpp / 1e6;
+          if (physicalArea !== null && (!Number.isFinite(physicalArea) || physicalArea <= 0)) throw new Error("mpp produces an unrepresentable physical area / mpp 对应面积无法表示");
           const r = analyzeStainImage({
-            pixels, rois: [], profileId: profile, threshold,
+            pixels, rois, profileId: profile, threshold, includeNuclei,
             segmentation: JSON.parse(JSON.stringify(DEFAULT_SEGMENTATION)),
-            calibration: { mpp: null }, stainOverride: null,
+            calibration, stainOverride: null,
           });
+          if (includeNuclei && !Array.isArray(r.nuclei)) throw new Error("Configured IHC engine does not support nucleus export / 当前 IHC 引擎不支持核坐标导出");
           return {
-            ...source, settings: { profile, threshold, segmentation: DEFAULT_SEGMENTATION, calibration: { mpp: null } }, overall: r.overall, thresholdUsed: r.thresholdUsed, backgroundLevel: r.backgroundLevel,
-            warnings: r.warnings, qc: r.qc, width: pixels.width, height: pixels.height,
+            ...source, roiMapping, settings: { profile, threshold, segmentation: DEFAULT_SEGMENTATION, calibration, sourceMpp: mpp, includeNuclei }, overall: r.overall, perRoi: r.perRoi, thresholdUsed: r.thresholdUsed, nuclearThresholdUsed: r.nuclearThresholdUsed, backgroundLevel: r.backgroundLevel,
+            ...(includeNuclei ? { nuclei: { coordinateSpace: "working", width: pixels.width, height: pixels.height,
+              items: r.nuclei.map((nucleus, index) => ({ id: `n${index + 1}`, x: nucleus.cx, y: nucleus.cy, meanOd: nucleus.meanOd, positive: nucleus.positive, touchesBorder: nucleus.touchesBorder })) } } : {}),
+            warnings: r.warnings, qc: r.qc, width: pixels.width, height: pixels.height, ...review(r.overlayRgba),
           };
-        }, { b64, name, coloc, profile, controlThreshold, controlName });
-        out.push({ file: name, ...res });
+        }, { b64, name, coloc, profile, controlThreshold, controlName, roiEntry, channels, mpp, includeNuclei, exportReview: Boolean(reviewDir) });
+        out.push({ file: name, inputSha256, ...res });
       } catch (error) {
         out.push({ file: name, error: String(error?.message ?? error) });
       }

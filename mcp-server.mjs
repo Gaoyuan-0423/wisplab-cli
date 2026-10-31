@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline";
 import * as lib from "./lib.mjs";
 import { runAnalysisJob } from "./runtime-controls.mjs";
+import { roiManifestSchema } from "./image-review.mjs";
 
 const CLI_DIR = dirname(fileURLToPath(import.meta.url));
 const { version } = JSON.parse(readFileSync(join(CLI_DIR, "package.json"), "utf8"));
@@ -50,6 +51,7 @@ function validate(value, schema, label = "arguments") {
   if (schema.minLength && value.trim().length < schema.minLength) throw new Error(`${label}: must not be empty`);
   if (schema.type === "array") {
     if (schema.minItems && value.length < schema.minItems) throw new Error(`${label}: at least ${schema.minItems} item required`);
+    if (schema.maxItems && value.length > schema.maxItems) throw new Error(`${label}: at most ${schema.maxItems} items allowed`);
     value.forEach((item, i) => validate(item, schema.items, `${label}[${i}]`));
   }
   if (schema.type === "object") {
@@ -100,7 +102,7 @@ return [
   {
     name: "ihc_quantify",
     description:
-      "Quantify IHC / H&E / Masson histology image(s) with the pathology-workbench engine: Ruifrok colour deconvolution, background subtraction, positivity threshold (per-image Otsu; control-slide calibration for H-DAB only), nuclei segmentation, H-score. Returns whole-image metrics. JPEG/TIFF/PNG.",
+      "Quantify IHC / H&E / Masson histology image(s): colour deconvolution, positivity threshold, nuclei counts and H-score. Optional SHA-bound source-pixel ROI import, nucleus center export, mpp and local review HTML/PNGs. Overlay shows positive stain, not nuclear contours. JPEG/TIFF/PNG.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -110,9 +112,14 @@ return [
         files: { type: "array", minItems: 1, items: { type: "string", minLength: 1 }, description: "图像文件绝对路径" },
         profile: { type: "string", enum: ["h_dab", "h_eosin", "masson"], description: "染色预设（默认 h_dab）" },
         controlTif: { type: "string", minLength: 1, description: "H-DAB 未染色对照片路径；按 0.1% 假阳率标定阈值（仅 h_dab）" },
+        roiManifest: { ...roiManifestSchema, description: "SHA-256-bound source-pixel rectangles / 与原图哈希绑定的矩形 ROI" },
+        mpp: { type: "number", exclusiveMinimum: 0, description: "Original source pixel size in µm/px / 原图像素尺寸" },
+        includeNuclei: { type: "boolean", description: "Export nucleus centers in working coordinates / 导出工作图核中心坐标" },
+        reviewDir: { type: "string", minLength: 1, description: "Existing local output directory inside allowPaths; creates a new review subdirectory / 已存在的本地输出目录" },
       },
     },
-    call: (a) => engine.runIhc({ runtime: a.runtime, files: a.files ?? [], coloc: false, profile: a.profile ?? "h_dab", controlTif: a.controlTif ?? null }),
+    call: (a) => engine.runIhc({ runtime: a.runtime, files: a.files ?? [], coloc: false, profile: a.profile ?? "h_dab", controlTif: a.controlTif ?? null,
+      roiManifest: a.roiManifest ?? null, mpp: a.mpp ?? null, includeNuclei: a.includeNuclei ?? false, reviewDir: a.reviewDir ?? null }),
   },
   {
     name: "if_colocalize",
@@ -122,9 +129,14 @@ return [
       type: "object",
       additionalProperties: false,
       required: ["files"],
-      properties: { runtime: runtimeSchema, files: { type: "array", minItems: 1, items: { type: "string", minLength: 1 }, description: "图像文件绝对路径" } },
+      properties: {
+        runtime: runtimeSchema,
+        files: { type: "array", minItems: 1, items: { type: "string", minLength: 1 }, description: "图像文件绝对路径" },
+        channels: { type: "array", minItems: 2, maxItems: 2, items: { type: "string", enum: ["R", "G", "B"] }, description: "Two distinct RGB channels, default R,G / 两个不同 RGB 通道" },
+        reviewDir: { type: "string", minLength: 1, description: "Existing local output directory inside allowPaths / 已存在的本地输出目录" },
+      },
     },
-    call: (a) => engine.runIhc({ runtime: a.runtime, files: a.files ?? [], coloc: true, profile: "if_coloc", controlTif: null }),
+    call: (a) => engine.runIhc({ runtime: a.runtime, files: a.files ?? [], coloc: true, profile: "if_coloc", controlTif: null, channels: a.channels ?? null, reviewDir: a.reviewDir ?? null }),
   },
   {
     name: "pcr_analyze",
@@ -207,6 +219,7 @@ export function createMcpHandler({ cfg, engine = lib, notify = () => {} }) {
     } else {
       input.files = input.files.map((path) => checkedPath(path, roots));
       if (input.controlTif !== undefined) input.controlTif = checkedPath(input.controlTif, roots);
+      if (input.reviewDir !== undefined) input.reviewDir = checkedPath(input.reviewDir, roots, "directory");
     }
     input.runtime = { ...input.runtime, ...runtime };
     return await tool.call(input);
@@ -294,7 +307,7 @@ export function createMcpHandler({ cfg, engine = lib, notify = () => {} }) {
             if (controller.signal.aborted) return null;
             const fileErrors = [...(Array.isArray(result?.files) ? result.files : []), ...(Array.isArray(result?.images) ? result.images : [])]
               .some((item) => item?.error !== undefined);
-            return respond({ ...textResult(result), isError: Boolean(result?.error) || fileErrors || (tool.name === "pcr_verify" && result.exitCode !== 0) });
+            return respond({ ...textResult(result), isError: Boolean(result?.error) || fileErrors || Boolean(result?.review?.error) || (tool.name === "pcr_verify" && result.exitCode !== 0) });
           } catch (err) {
             if (controller.signal.aborted) return null;
             return respond({ ...textResult(err.provenance ? {error: err.message, provenance: err.provenance} : `wisplab tool error / 工具错误：${err.message}`), isError: true });

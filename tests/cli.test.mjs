@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, realpathSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, realpathSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawnSync, spawn } from 'node:child_process';
 import { loadConfig, config, runWb, runPcr, runIhc } from '../lib.mjs';
 
 const cli = resolve('cli.mjs');
@@ -136,4 +136,39 @@ test('CLI runtime controls keep stdout JSON and progress on stderr', t => {
     const invalid = run(['wb', 'image.png', '--config', cfg, ...args], dir);
     assert.notEqual(invalid.status, 0); assert.equal(invalid.stdout, '');
   }
+});
+
+
+test('CLI worker timeout emits a structured error JSON without fabricated provenance', { timeout: 5000 }, t => {
+  const { dir, engine, cfg } = fixture(t);
+  writeFileSync(join(engine, 'node_modules', '.bin', 'tsx'), `#!${process.execPath}\nsetInterval(() => {}, 1000);\n`, { mode: 0o755 });
+  const result = run(['wb', 'image.png', '--config', cfg, '--timeout-ms', '200'], dir);
+  assert.equal(result.status, 1, result.stderr);
+  const error = JSON.parse(result.stdout);
+  assert.equal(error.code, 'BATCH_TIMEOUT'); assert.match(error.error, /timed out/);
+  assert.equal(Object.hasOwn(error, 'provenance'), false);
+  assert.match(result.stderr, /timed out/);
+});
+
+test('CLI SIGTERM cancels a running worker and emits structured cancellation JSON', { timeout: 7000 }, async t => {
+  const { dir, engine, cfg } = fixture(t), ready = join(dir, 'runner-started');
+  writeFileSync(join(engine, 'node_modules', '.bin', 'tsx'), `#!${process.execPath}\nrequire('node:fs').writeFileSync(${JSON.stringify(ready)}, 'ready');\nsetInterval(() => {}, 1000);\n`, { mode: 0o755 });
+  const child = spawn(process.execPath, [cli, 'wb', 'image.png', '--config', cfg], { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'] });
+  t.after(() => { if (child.exitCode === null) child.kill('SIGTERM'); });
+  let stdout = '', stderr = '';
+  child.stdout.on('data', data => { stdout += data; }); child.stderr.on('data', data => { stderr += data; });
+  const closed = new Promise((resolve, reject) => { child.once('error', reject); child.once('close', (code, signal) => resolve({ code, signal })); });
+  const deadline = Date.now() + 4000;
+  while (!existsSync(ready)) {
+    assert.equal(child.exitCode, null, stderr);
+    assert.ok(Date.now() < deadline, 'analysis runner did not start');
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+  child.kill('SIGTERM');
+  const status = await closed;
+  assert.equal(status.code, 1, stderr); assert.equal(status.signal, null);
+  const error = JSON.parse(stdout);
+  assert.equal(error.code, 'CANCELLED'); assert.match(error.error, /cancelled/);
+  assert.equal(Object.hasOwn(error, 'provenance'), false);
+  assert.match(stderr, /cancelled/);
 });

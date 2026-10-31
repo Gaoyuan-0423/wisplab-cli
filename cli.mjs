@@ -19,10 +19,11 @@ const HELP = `wisplab — WispLab 三引擎无头定量（与 MCP server 共用�
   wisplab wb  <图...>  [--lanes N] [--strip y,h,x0,x1] [--bg local|rolling[:半径]]
                        [--signal dark|light] [--control 泳道号]
   wisplab ihc <图...>  [--profile h_dab|h_eosin|masson] [--control-tif 对照片]
+                       [--roi-manifest rois.json] [--mpp 原图µm/px] [--nuclei] [--review-dir 已存在目录]
   wisplab ihc-validate <result.json> <reference.json>  离线参考值比较，无需引擎配置 / Offline reference comparison; no engine config
   wisplab ihc-annotation-pack <result.json> --images-root DIR --output-dir DIR
   wisplab ihc-nuclei-validate <result.json> <reference.json> --match-radius PX
-  wisplab if  <图...>                                  IF 双通道共定位
+  wisplab if  <图...> [--channels R,G] [--review-dir 已存在目录] IF 双通道共定位
   wisplab pcr <表...>  [--ref GAPDH] [--control C1,C2] [--eff "T=92;GAPDH=99"]
                        [--min-cq N] [--max-cq N] [--abs-dev N] [--z-score N] [--rep-sd N]
                        [--qc-mode report|exclude] [--exclude-rows 1,2]
@@ -38,11 +39,11 @@ const HELP = `wisplab — WispLab 三引擎无头定量（与 MCP server 共用�
 
 function emitAnalysis(result) {
   console.log(JSON.stringify(result, null, 2));
-  if (result.error || [...(result.files ?? []), ...(result.images ?? [])].some((item) => item.error)) process.exitCode = 1;
+  if (result.error || result.review?.error || [...(result.files ?? []), ...(result.images ?? [])].some((item) => item.error)) process.exitCode = 1;
 }
 
 try {
-  const valueFlags = new Set(["timeout-ms", "file-timeout-ms", "config", "lanes", "strip", "bg", "signal", "control", "control-tif", "profile", "ref", "eff", "min-cq", "max-cq", "abs-dev", "z-score", "rep-sd", "qc-mode", "exclude-rows", "groups", "control-group", "images-root", "output-dir", "match-radius"]);
+  const valueFlags = new Set(["timeout-ms", "file-timeout-ms", "config", "lanes", "strip", "bg", "signal", "control", "control-tif", "profile", "ref", "eff", "min-cq", "max-cq", "abs-dev", "z-score", "rep-sd", "qc-mode", "exclude-rows", "groups", "control-group", "images-root", "output-dir", "match-radius", "roi-manifest", "channels", "mpp", "review-dir"]);
   const opts = {};
   const positional = [];
   let literal = false;
@@ -51,7 +52,7 @@ try {
     if (a === "--" && !literal) { literal = true; continue; }
     if (!literal && a.startsWith("-")) {
       const flag = a === "-h" ? "help" : a.slice(2);
-      if (["help", "version", "coloc", "strict"].includes(flag)) opts[flag] = true;
+      if (["help", "version", "coloc", "strict", "nuclei"].includes(flag)) opts[flag] = true;
       else if (a.startsWith("--") && valueFlags.has(flag)) {
         const value = argv[++i];
         if (!value || value.startsWith("--")) throw new Error(`${a}: 缺少参数 / missing value`);
@@ -68,7 +69,7 @@ try {
   } else {
     const allowed = {
       wb: ["timeout-ms", "lanes", "strip", "bg", "signal", "control"],
-      pcr: ["timeout-ms", "ref", "control", "eff", "min-cq", "max-cq", "abs-dev", "z-score", "rep-sd", "qc-mode", "exclude-rows", "groups", "control-group"], ihc: ["timeout-ms", "file-timeout-ms", "profile", "control-tif", "coloc"], if: ["timeout-ms", "file-timeout-ms"],
+      pcr: ["timeout-ms", "ref", "control", "eff", "min-cq", "max-cq", "abs-dev", "z-score", "rep-sd", "qc-mode", "exclude-rows", "groups", "control-group"], ihc: ["timeout-ms", "file-timeout-ms", "profile", "control-tif", "coloc", "roi-manifest", "channels", "mpp", "nuclei", "review-dir"], if: ["timeout-ms", "file-timeout-ms", "channels", "review-dir"],
       grade: [], "verify-pcr": [], doctor: ["strict"], "ihc-validate": [], "ihc-annotation-pack": ["images-root", "output-dir"], "ihc-nuclei-validate": ["match-radius"],
     };
     if (!allowed[cmd]) throw new Error(`未知命令 / Unknown command: ${cmd}`);
@@ -147,6 +148,11 @@ try {
         coloc, runtime,
         profile: coloc ? "if_coloc" : String(opts.profile ?? "h_dab"),
         controlTif: typeof opts["control-tif"] === "string" ? resolve(opts["control-tif"]) : null,
+        roiManifest: opts["roi-manifest"] ? JSON.parse(readFileSync(resolve(opts["roi-manifest"]), "utf8")) : null,
+        channels: opts.channels ? opts.channels.split(",").map(value => value.trim()) : null,
+        mpp: opts.mpp === undefined ? null : Number(opts.mpp),
+        includeNuclei: Boolean(opts.nuclei),
+        reviewDir: opts["review-dir"] ? resolve(opts["review-dir"]) : null,
       }));
     } else if (cmd === "grade") {
       if (positional.length < 3) throw new Error("grade：用法 wisplab grade <pcr|ihc|wb|synthetic16> <submission.json>");
@@ -163,7 +169,7 @@ try {
     }
   }
 } catch (err) {
-  if (err.provenance) console.log(JSON.stringify({ error: err.message, provenance: err.provenance }, null, 2));
+  if (err.provenance || ["CANCELLED", "BATCH_TIMEOUT", "FILE_TIMEOUT"].includes(err.code)) console.log(JSON.stringify({ error: err.message, ...(err.code ? {code:err.code} : {}), ...(err.provenance ? {provenance:err.provenance} : {}) }, null, 2));
   console.error(`wisplab: ${err.message}`);
   process.exitCode = 1;
 }

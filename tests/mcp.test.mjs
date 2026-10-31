@@ -199,6 +199,7 @@ test('stdio drains asynchronous calls at EOF and processes both requests in orde
   const f = fixture(t);
   copyFileSync(join(root, 'mcp-server.mjs'), join(f.dir, 'mcp-server.mjs'));
   copyFileSync(join(root, 'runtime-controls.mjs'), join(f.dir, 'runtime-controls.mjs'));
+  copyFileSync(join(root, 'image-review.mjs'), join(f.dir, 'image-review.mjs'));
   writeFileSync(join(f.dir, 'package.json'), JSON.stringify({ version: 'test', type: 'module' }));
   writeFileSync(join(f.dir, 'lib.mjs'), `export function config() { return ${JSON.stringify(f.cfg)}; }
     export async function runIhc({ coloc }) {
@@ -257,4 +258,40 @@ test('legacy progress uses only requested tokens; queued cancellation never star
   assert.equal((await a).result.isError, false); assert.equal(await b, null);
   assert.equal(started.length, 1);
   assert.deepEqual(notifications.map(n => [n.params.progressToken, n.params.progress]), [[99, 0], [99, 1]]);
+});
+
+test('MCP combines IHC/IF review options with runtime deadlines and cancellation signals', async t => {
+  const f = fixture(t), handle = createMcpHandler(f);
+  const runtime = { timeoutMs: 9000, fileTimeoutMs: 3000 };
+  const roiManifest = { schemaVersion: 'wisplab.rois/v1', images: [{ file: 'sample.png', sha256: 'a'.repeat(64), coordinateSpace: 'source', sourceWidth: 20, sourceHeight: 20,
+    rois: [{ id: 'r1', name: 'Region', x: 1, y: 1, w: 10, h: 10 }] }] };
+  const ihc = await handle(call('ihc_quantify', { files: [f.image], runtime, roiManifest, mpp: 0.5, includeNuclei: true, reviewDir: f.allowed }));
+  assert.equal(ihc.result.isError, false);
+  assert.deepEqual(f.calls[0].roiManifest, roiManifest); assert.equal(f.calls[0].mpp, 0.5); assert.equal(f.calls[0].includeNuclei, true);
+  assert.equal(f.calls[0].reviewDir, realpathSync(f.allowed));
+  assert.equal(f.calls[0].runtime.timeoutMs, 9000); assert.equal(f.calls[0].runtime.fileTimeoutMs, 3000);
+  assert.equal(f.calls[0].runtime.signal instanceof AbortSignal, true);
+  const result = await handle(call('if_colocalize', { files: [f.image], runtime, channels: ['B', 'G'], reviewDir: f.allowed }));
+  assert.equal(result.result.isError, false); assert.deepEqual(f.calls[1].channels, ['B', 'G']); assert.equal(f.calls[1].runtime.timeoutMs, 9000);
+  assert.equal((await handle(call('if_colocalize', { files: [f.image], channels: ['R', 'G', 'B'] }))).result.isError, true);
+});
+
+test('MCP review outputs obey allowPaths including symlink targets', async t => {
+  const f = fixture(t), handle = createMcpHandler(f);
+  const escape = join(f.allowed, 'output-link'); symlinkSync(f.outside, escape);
+  for (const reviewDir of [f.outside, escape]) {
+    const response = await handle(call('ihc_quantify', { files: [f.image], reviewDir }));
+    assert.equal(response.result.isError, true); assert.match(response.result.content[0].text, /outside allowPaths/);
+  }
+  assert.equal(f.calls.length, 0);
+});
+
+test('MCP retains image results while marking review or runtime job errors', async t => {
+  const f = fixture(t), handle = createMcpHandler(f);
+  for (const failure of [{ review: { error: 'review disk full' } }, { error: 'cleanup timeout' }]) {
+    f.engine.runIhc = async () => ({ files: [{ file: 'sample.png', value: 42 }], ...failure });
+    const response = await handle(call('ihc_quantify', { files: [f.image] }));
+    assert.equal(response.result.isError, true);
+    assert.equal(JSON.parse(response.result.content[0].text).files[0].value, 42);
+  }
 });
