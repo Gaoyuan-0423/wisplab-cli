@@ -65,7 +65,7 @@ export function normalizeImageOptions({ files, coloc = false, roiManifest = null
     if (new Set(inputNames).size !== inputNames.length || inputNames.some(name => !names.has(name)) || names.size !== inputNames.length) throw new Error('ROI manifest must match every input by unique basename / ROI 清单须完整对应本批所有图像');
     roiManifest = structuredClone(roiManifest);
   }
-  return { roiManifest, channels: coloc ? channels ?? ['R', 'G'] : null, mpp, includeNuclei, reviewDir };
+  return { roiManifest, channels: coloc ? [...(channels ?? ['R', 'G'])] : null, mpp, includeNuclei, reviewDir };
 }
 
 const escapeHtml = value => String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));

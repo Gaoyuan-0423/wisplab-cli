@@ -19,6 +19,8 @@ IHC/IF 的分析前后追溯使用异步文件流和可取消的 Git 检查，�
 
 IHC/IF provenance uses asynchronous file streams and cancellable Git checks before and after analysis, keeping MCP ping and cancellation responsive during large-file or slow-Git checks. If final tracing is cancelled, completed images remain available, incomplete hash/source checks are explicitly unverified, and the result carries `CANCELLED`. Each job uses a resolved configuration snapshot. Editing or deleting its source file cannot change a persistent MCP server's engines, and IHC timeout restarts retain the same engine path and port. Restart the MCP server to apply new configuration.
 
+共享库 `runIhc()` 在返回 Promise 前固定文件列表与已校验的通道/ROI 参数；调用方随后复用或修改原数组不会改变本次执行或追溯身份。 / The shared `runIhc()` API snapshots its file list and validated channel/ROI options before returning its promise. Reusing or editing the caller's arrays cannot change that run's execution or provenance identity.
+
 ## 批量结果 / Batch results
 
 - WB 单图读取、解码、裁剪或测量失败时，保留该图的 `error` 和其他图的结果，继续处理后续图。CLI 返回非零退出码；MCP 设置 `isError: true`。

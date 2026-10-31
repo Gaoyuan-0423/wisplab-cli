@@ -134,6 +134,8 @@ Track problems and changes through [Issues](https://github.com/Gaoyuan-0423/wisp
 
 生物学分组 / Biological groups: [Guide](docs/qpcr-groups.md).
 
+0.8.1 correctness fixes: [Per-gene efficiency and missing-result boundaries](docs/pcr-correctness.md). Single-reference analysis remains supported.
+
 IHC 参考值与本地厂商图复核 / Reference comparisons and local vendor checks: [Guide](docs/ihc-validation.md).
 
 0.8 使用说明 / 0.8 guides: [导入与配对 / Import and pairing](docs/pcr-import-design.md) · [图像 ROI 与复核 / Image review](docs/image-review.md) · [独立核标注 / Independent annotations](docs/ihc-nuclei-validation.md) · [时限与取消 / Runtime controls](docs/runtime-controls.md) · [锁定引擎安装 / Verified engines](docs/verified-engines.md).

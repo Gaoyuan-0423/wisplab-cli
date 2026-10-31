@@ -160,6 +160,9 @@ export function runVerifyPcr(dir) {
 
 export async function runIhc({ files, coloc = false, profile = "h_dab", controlTif = null, runtime = {}, roiManifest = null, channels = null, mpp = null, includeNuclei = false, reviewDir = null }, resolvedConfig = null) {
   validateFiles(files);
+  // Initial provenance is asynchronous: keep execution bound to the input list
+  // validated here even if the caller reuses its array while this promise runs.
+  files = [...files];
   if (!["h_dab", "h_eosin", "masson", "if_coloc"].includes(profile)) throw new Error("Unsupported stain profile");
   if (controlTif && (coloc || profile !== "h_dab")) throw new Error("对照片标定仅支持 H-DAB / Control calibration supports H-DAB only");
   runtime = normalizeRuntime(runtime);

@@ -57,6 +57,25 @@ for (const change of ['rewrite', 'delete']) test(`workers and IHC provenance kee
 });
 
 
+test('IHC input identity stays fixed when the caller reuses its file array during initial tracing', async t => {
+  const f = fixture(t), snapshot = loadConfig(f.path), files = [f.input];
+  const pending = runIhc({ files }, snapshot);
+  files[0] = join(f.dir, 'replacement.png');
+  files.push(join(f.dir, 'extra.png'));
+  const result = await pending;
+  assert.deepEqual(result.files.map(file => file.file), ['input.png']);
+  assert.deepEqual(result.provenance.inputs.map(input => input.file), ['input.png']);
+  assert.equal(result.provenance.checks.inputsUnchanged, true);
+});
+
+test('IHC keeps validated channel selections when the caller mutates its options', async t => {
+  const f = fixture(t), snapshot = loadConfig(f.path), channels = ['R', 'B'];
+  const pending = runIhc({ files: [f.input], coloc: true, channels }, snapshot);
+  channels.splice(0, 2, 'invalid', 'invalid');
+  const result = await pending;
+  assert.deepEqual(result.provenance.parameters.channels, ['R', 'B']);
+});
+
 test('a persistent MCP dispatcher keeps WB and PCR engine identity after config replacement and deletion', async t => {
   const f = fixture(t), snapshot = config(f.path);
   const handle = createMcpHandler({ cfg: snapshot });
