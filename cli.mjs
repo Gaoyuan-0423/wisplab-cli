@@ -39,7 +39,7 @@ const HELP = `wisplab — WispLab 三引擎无头定量（与 MCP server 共用�
   wisplab --version
 
 分析：--timeout-ms <ms> 整批时限，默认300000；IHC/IF --file-timeout-ms <ms> 单图时限，默认120000。
-全局：--config <path> 指定仓库路径配置。`;
+全局：--config <path> 指定仓库路径配置；qPCR 可在 pcr.experimentalDesign 提供明确确认的设计。`;
 
 function emitAnalysis(result) {
   console.log(JSON.stringify(result, null, 2));
@@ -156,6 +156,7 @@ try {
         refGenes: String(opts.ref ?? "").split(",").map((v) => v.trim()).filter(Boolean),
         controlSamples: String(opts.control ?? "").split(",").map((v) => v.trim()).filter(Boolean),
         efficiencies: eff,
+        experimentalDesign: config().pcr?.experimentalDesign,
         qc: Object.fromEntries(Object.entries({ minCq: "min-cq", maxCq: "max-cq", absDev: "abs-dev", zScore: "z-score", repSD: "rep-sd" })
           .filter(([, flag]) => opts[flag] !== undefined).map(([key, flag]) => [key, Number(opts[flag])])),
         qcMode: opts["qc-mode"] ?? "report",

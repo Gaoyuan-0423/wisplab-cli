@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, realpathSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, realpathSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync, spawn } from 'node:child_process';
@@ -196,4 +196,21 @@ test('CLI SIGTERM cancels a running worker and emits structured cancellation JSO
   assert.equal(error.code, 'CANCELLED'); assert.match(error.error, /cancelled/);
   assert.equal(Object.hasOwn(error, 'provenance'), false);
   assert.match(stderr, /cancelled/);
+});
+
+test('CLI passes a design from config only as an explicit per-analysis payload', t => {
+  const { dir, cfg } = fixture(t);
+  const design = { kind: 'independent', confirmed: true, controlGroup: 'C', assignments: [{ plate: '', sample: 'C1', unitId: 'U1', group: 'C' }] };
+  writeFileSync(cfg, JSON.stringify({ ...JSON.parse(readFileSync(cfg, 'utf8')), pcr: { experimentalDesign: design } }));
+  const r = run(['pcr', 'plate.csv', '--config', cfg], dir);
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(JSON.parse(r.stdout).payload.experimentalDesign, design);
+  const multiple = run(['pcr', 'one.csv', 'two.csv', '--config', cfg], dir);
+  assert.notEqual(multiple.status, 0);
+  assert.match(multiple.stderr, /exactly one input file/);
+  config(cfg);
+  // Structured callers, including MCP, do not inherit a saved confirmation silently.
+  assert.equal(runPcr({ files: ['plate.csv'] }).payload.experimentalDesign, undefined);
+  assert.throws(() => runPcr({ files: ['plate.csv'], experimentalDesign: { ...design, confirmed: 'true' } }), /experimentalDesign/);
+  assert.throws(() => runPcr({ files: ['plate.csv'], experimentalDesign: design, biologicalDesign: { samples: {C1:'C',T1:'T'}, controlGroup:'C' } }), /not both/);
 });

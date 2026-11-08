@@ -31,9 +31,9 @@ For import preview, explicit worksheet/header/column selection and full paired-d
 
 ## 主结果与失败状态 / Primary results and failure status
 
-每个 qPCR 文件的 `primaryAnalysis` 是推荐的报告入口。显式分组成功时，`kind` 为 `biological-groups`、`statisticalUnit` 为 `biological-sample`，`summaries` 和 `comparisons` 对应生物学分组结果；不请求分组时，分别为 `well-level` 和 `well`。所有模式均先检查 `status` 与 `error`，再解读数值。
+每个 qPCR 文件的 `primaryAnalysis` 是推荐的报告入口。显式分组成功时，`kind` 为 `biological-groups`、`statisticalUnit` 为 `biological-sample`，`summaries` 和 `comparisons` 对应生物学分组结果；不请求任何设计时，分别为 `descriptive-only` 和 `descriptive_only`，样本级 p 值为空。另一种[引擎实验单位设计](qpcr-design.md)采用 `experimental-units`；两种设计不能同时传入。所有模式均先检查 `status` 与 `error`，再解读数值。
 
-Use each qPCR file's `primaryAnalysis` as the preferred reporting entry. A successful explicit design has `kind: biological-groups` and `statisticalUnit: biological-sample`; its `summaries` and `comparisons` are the biological results. Without a design, the values are `well-level` and `well`. Check `status` and `error` before interpreting numbers in either mode.
+Use each qPCR file's `primaryAnalysis` as the preferred reporting entry. A successful explicit design has `kind: biological-groups` and `statisticalUnit: biological-sample`; its `summaries` and `comparisons` are the biological results. Without either design, the values are `descriptive-only` and `descriptive_only`, with null sample p-values. The alternative [engine unit contract](qpcr-design.md) uses `experimental-units`; the two designs are mutually exclusive. Check `status` and `error` before interpreting numbers in either mode.
 
 若已请求分组，但样本映射或后续分析失败，`primaryAnalysis` 保持生物学分组的错误状态，不自动改用逐孔统计。保留的旧 `results` 和 `biologicalGroups` 是兼容/详细字段；不可将旧逐孔 p 值作为分组结论。可独立检查错误报告中的 QC/NTC 诊断。统计量为 `null` 时说明不可用，不等于“不显著”。
 

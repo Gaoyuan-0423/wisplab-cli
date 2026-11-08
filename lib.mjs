@@ -10,7 +10,7 @@ import { runIhcBatch, normalizeRuntime } from "./runtime-controls.mjs";
 import { trackAnalysisSync, trackAnalysis } from "./provenance.mjs";
 import { readEngineLock, checkEngineRevision } from "./engine-lock.mjs";
 import { normalizeBiologicalDesign } from "./pcr-groups.mjs";
-import { normalizePcrOptions } from "./pcr-options.mjs";
+import { normalizePcrOptions, normalizeExperimentalDesign } from "./pcr-options.mjs";
 import { normalizePcrImportOptions } from "./pcr-import.mjs";
 import { normalizeImageOptions, saveImageReview, sha256 } from "./image-review.mjs";
 
@@ -115,7 +115,7 @@ export function runWb({ files, lanes = null, strip = null, bg = "local", radius 
     }, normalizeRuntime(runtime).timeoutMs));
 }
 
-export function runPcr({ files, refGenes = [], controlSamples = [], efficiencies = {}, qc = {}, qcMode = "report", excludeRows = [], biologicalDesign = null, importOptions = {}, runtime = {} }) {
+export function runPcr({ files, refGenes = [], controlSamples = [], efficiencies = {}, qc = {}, qcMode = "report", excludeRows = [], biologicalDesign = null, experimentalDesign, importOptions = {}, runtime = {} }) {
   validateFiles(files);
   for (const [name, values] of Object.entries({ refGenes, controlSamples })) {
     if (!Array.isArray(values) || values.some((v) => typeof v !== "string" || !v.trim())) throw new Error(`${name}: expected nonempty gene/sample names`);
@@ -125,6 +125,9 @@ export function runPcr({ files, refGenes = [], controlSamples = [], efficiencies
     if (!gene.trim() || !Number.isFinite(value) || value <= 0 || value > 200) throw new Error("efficiencies: percentages must be > 0 and <= 200");
   }
   if (excludeRows.length && files.length !== 1) throw new Error("Manual row exclusion requires exactly one input file");
+  const design = normalizeExperimentalDesign(experimentalDesign);
+  if (design && biologicalDesign) throw new Error("Supply experimentalDesign or biologicalDesign, not both / 两种设计不能同时传入");
+  if (design && files.length !== 1) throw new Error("Experimental design requires exactly one input file / 实验设计暂限单输入文件");
   biologicalDesign = normalizeBiologicalDesign(biologicalDesign);
   if (biologicalDesign) {
     if (files.length !== 1) throw new Error("Biological design requires exactly one input file");
@@ -133,7 +136,7 @@ export function runPcr({ files, refGenes = [], controlSamples = [], efficiencies
       throw new Error("controlSamples conflicts with biological controlGroup");
     controlSamples = controls;
   }
-  const parameters = { refGenes, controlSamples, efficiencies, biologicalDesign, importOptions: normalizePcrImportOptions(importOptions), ...normalizePcrOptions({ qc, qcMode, excludeRows }) };
+  const parameters = { refGenes, controlSamples, efficiencies, biologicalDesign, ...(design ? { experimentalDesign: design } : {}), importOptions: normalizePcrImportOptions(importOptions), ...normalizePcrOptions({ qc, qcMode, excludeRows }) };
   const engineDir = repo("pcr");
   return trackAnalysisSync({ analysis: "pcr", engineDir, bridgeDir: CLI_DIR, parameters, inputs: files.map(path => ({path})) },
     () => runRunner(engineDir, "pcr-run.ts", { files: files.map(f => resolve(f)), ...parameters }, normalizeRuntime(runtime).timeoutMs));

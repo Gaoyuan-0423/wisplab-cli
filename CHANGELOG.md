@@ -1,5 +1,14 @@
 # Changelog / 更新记录
 
+
+## Unreleased — confirmed experimental units
+
+- Add explicit `experimentalDesign` source/unit/group mapping across configuration, API, MCP and provenance, with compatibility checks for the selected qPCR engine.
+- Preserve v0.8 biologicalDesign paired/unpaired inference, import controls, efficiency corrections and runtime isolation; the two design interfaces are mutually exclusive.
+- Default qPCR output is now descriptive: sample-level p-values are suppressed and primary comparisons are empty without a design. Unsupported or invalid unit designs never fall back to well-level inference.
+- Partition technical QC by plate and add separate real candidate-engine CI alongside the existing pinned-engine regressions. See [integration evidence](docs/validation-2026-11-08.md).
+
+
 ## 0.8.1 — 2026-10-31
 
 - 修正自选多个不同效率内参时的 qPCR 归一化，先逐基因换算再汇总；单内参继续支持，不增加数量要求。 / Correct optional multiple-reference normalization using each gene's efficiency before pooling; preserve single-reference support.

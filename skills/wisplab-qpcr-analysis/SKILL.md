@@ -5,7 +5,7 @@ description: >-
   single-reference normalization (multiple references optional), ΔΔCt (Livak)
   and Pfaffl efficiency-corrected fold change, NTC contamination reports,
   biological-group Welch or paired t-tests with Holm and individual 95% intervals,
-  plus legacy well-level Welch/ANOVA + Dunnett. Use whenever the user gives you a qPCR export
+  or confirmed engine-unit Welch/ANOVA + Dunnett; no-design output is descriptive. Use whenever the user gives you a qPCR export
   (QuantStudio/CFX/LightCycler CSV, 仪器导出表格) or asks about 相对定量/ΔΔCt/
   2^-ΔΔCt/Pfaffl/效率校正/内参/对照孔/NTC/熔解QC/组间统计/显著性 — even without
   saying "WispLab". You (the agent) construct and run the wisplab pcr command
@@ -48,14 +48,15 @@ Read `files[].primaryAnalysis` first: check `kind`, `statisticalUnit`, `status` 
 | 主结果 / Primary result | 解读 / Interpretation |
 | --- | --- |
 | `kind: biological-groups`, `statisticalUnit: biological-sample`, `status: success` | 按实际方法报告组别、靶标、生物学 n/完整配对数、fold change、单次未校正 95% CI、Welch 或配对 t 检验 p 与 Holm 校正 p。技术孔不能增加生物学 n。 / Report group, target, biological n/complete pairs, fold change, individual unadjusted 95% CI, Welch or paired-t p and Holm-adjusted p; technical wells do not increase biological n. |
-| `kind: well-level`, `statisticalUnit: well`, `status: success` | 按主结果中的逐孔统计方法解读；不称为生物学组间推断。 / Interpret the stated well-level methods; do not present them as biological-group inference. |
+| `kind: descriptive-only`, `statisticalUnit: descriptive_only`, `status: success` | 仅描述技术测量，不输出逐孔推断。 / Report technical descriptions only; no well-level inference. |
+| `kind: experimental-units`, `status: success` | 先核对 designStatus、nBio/nTech 和 inferenceMode，再按实际单位级方法解释；未确认或重复不足保留描述/null。 / Check design status, nBio/nTech and inference mode before interpreting unit-level results. |
 | `status: error` | 报告错误及仍可用的 QC/NTC 诊断，不报告失败分析的统计结论。 / Report the error and available QC/NTC diagnostics, not a failed analysis's statistical conclusions. |
 
 若用户请求了 `biologicalDesign`，而分组失败，`primaryAnalysis` 必须保持 `kind: biological-groups` 和错误状态。**绝不能回退到旧 `results`，把逐孔 p 值当作分组 p 值。** 输出缺少 `primaryAnalysis` 时应核对版本和实际分析模式，不猜测统计单位。
 If `biologicalDesign` was requested but failed, the primary result must remain `kind: biological-groups` with error status. **Never fall back to legacy `results` and present well-level p-values as group inference.** If `primaryAnalysis` is absent, verify the version and actual analysis mode rather than guessing the statistical unit.
 
-非配对 Welch 使用每个生物学样本的 log2 归一化表达量（效率均为 100% 时等于 −ΔCt）；显式配对 t 检验使用完整配对内的表达差。Holm 校正覆盖该文件预先计划的靶标×处理组比较。旧逐孔统计中的 `pValue` 由 `statMethod` 决定：ANOVA 分支为总体检验，`pAdjusted` 为相对对照的 Dunnett 校正；不能与分组 Welch/Holm 混用。保留 `null`，不把缺失统计量写成“不显著”；极小非零 p 值使用科学计数法，不按显示精度写成 0。
-Unpaired Welch tests use each sample's log2 normalized expression (−ΔCt at 100% efficiency); explicit paired t-tests use complete within-pair differences. Holm covers the planned target × treatment comparisons in that file. In legacy well-level statistics, interpret `pValue` according to `statMethod`: ANOVA is omnibus and `pAdjusted` is the Dunnett comparison to control. Do not mix those with group Welch/Holm. Preserve null values rather than calling unavailable tests nonsignificant. Display very small nonzero p-values in scientific notation instead of rounding them to 0.
+非配对 Welch 使用每个生物学样本的 log2 归一化表达量（效率均为 100% 时等于 −ΔCt）；显式配对 t 检验使用完整配对内的表达差。Holm 校正覆盖该文件预先计划的靶标×处理组比较。引擎单位级 `groupResults` 的 `statMethod` 决定检验含义；ANOVA 为总体检验，Dunnett 为相对对照比较。不能与 `biologicalDesign` 的 Welch/Holm 混用；旧样本级 p 值被屏蔽。保留 `null`，不把缺失统计量写成“不显著”；极小非零 p 值使用科学计数法，不按显示精度写成 0。
+Unpaired Welch tests use each sample's log2 normalized expression (−ΔCt at 100% efficiency); explicit paired t-tests use complete within-pair differences. Holm covers the planned target × treatment comparisons in that file. For engine unit-level groupResults, interpret the reported statMethod: ANOVA is omnibus and Dunnett compares against control. Do not mix these with biologicalDesign Welch/Holm. Legacy sample p-values are suppressed. Preserve null values rather than calling unavailable tests nonsignificant. Display very small nonzero p-values in scientific notation instead of rounding them to 0.
 
 如实报告内参缺失、NTC 和重复质量警告。可配置逐孔 QC、复孔 SD 报告及显式行排除，默认不自动剔除；只启用部分规则不代表全部质控通过。显式分组限单文件，可非配对或用 `--paired --pair-ids` 声明配对；MCP 使用 `biologicalDesign.paired` 与 `pairIds`。不得猜测配对，检查缺失配对原因；不能把技术重复当独立生物学重复。95% CI 未作多重校正，与 Holm p 分开解读。
 Report missing references, NTC findings and replicate-quality warnings accurately. Per-well QC, replicate-SD reporting and explicit exclusions are configurable; report-only is the default and partial QC is not a complete pass. Grouping accepts one file, unpaired or explicitly paired using `--paired --pair-ids` (MCP: `biologicalDesign.paired` and `pairIds`). Never infer pairing; inspect omitted-pair reasons. Technical replicates are not independent biological replicates. The 95% CIs are unadjusted and must be interpreted separately from Holm p-values.
@@ -85,3 +86,5 @@ Distinguish `doctor.ready` from `verified`; use `wisplab doctor --strict` for th
 
 CLI `--timeout-ms` / MCP `runtime.timeoutMs` 设置整批时限（默认 300000 ms）。进度在 CLI stderr，MCP 仅对提供进度 token 的请求发送；取消会终止 worker。WB/qPCR 被强制中断时可能只有任务错误、没有完整结果；勿将其报告成成功。WB 普通逐图错误会保留其他图并继续。
 CLI `--timeout-ms` / MCP `runtime.timeoutMs` sets the batch deadline (default 300000 ms). Progress uses CLI stderr or an explicitly requested MCP progress token; cancellation stops the worker. Forced WB/qPCR interruption may return only a job error without complete results; never report success. Ordinary WB per-image failures preserve other images and continue.
+
+`experimentalDesign` requires explicit plate/sample/unit/group assignments and a compatible engine. It is mutually exclusive with `biologicalDesign`; neither sample names nor saved MCP server configuration implies confirmation. See [engine unit design](../../docs/qpcr-design.md).

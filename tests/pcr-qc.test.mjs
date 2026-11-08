@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizePcrOptions } from '../pcr-options.mjs';
+import { normalizePcrOptions, normalizeExperimentalDesign } from '../pcr-options.mjs';
 import { preparePcrRows } from '../pcr-qc.mjs';
 const rows = [20,20,40,10].map((cq,i) => ({id:i+1,plate:'P',well:`A${i+1}`,sample:i===3?'NTC':'S1',target:'T',cq,excluded:false}));
 const api = {
@@ -14,7 +14,24 @@ test('report mode records flags and high SD without changing rows or inferring b
   assert.deepEqual(r.report.flaggedRowIds,[3,4]);
   assert.equal(r.report.replicateGroups[0].highSD,true);
   assert.equal(r.report.replication.biologicalReplicateCount,null);
-  assert.equal(r.report.replication.statisticalUnit,'well');
+  assert.equal(r.report.replication.statisticalUnit,'descriptive_only');
+});
+
+test('same sample names on different plates remain separate QC groups with older engines', () => {
+  const input = [20, 20, 30, 30].map((cq, i) => ({ id: i + 1, plate: i < 2 ? 'P1' : 'P2', sample: 'S', target: 'T', cq, excluded: false }));
+  const seen = [];
+  const r = preparePcrRows(input, { qc: { repSD: 1 } }, { ...api, computeQcFlags(group) { seen.push(group); return {}; } });
+  assert.equal(seen.length, 2);
+  assert.deepEqual(r.report.replicateGroups.map(group => [group.plate, group.wellCount, group.highSD]), [['P1', 2, false], ['P2', 2, false]]);
+});
+
+test('design validation preserves identities and never invents confirmation', () => {
+  assert.equal(normalizeExperimentalDesign(), undefined);
+  const design = { kind: 'independent', confirmed: false, controlGroup: '', assignments: [] };
+  assert.deepEqual(normalizeExperimentalDesign(design), design);
+  for (const invalid of [{}, { ...design, confirmed: 'true' }, { ...design, guessed: true }, { ...design, assignments: [{ sample: 'S', group: 'C', unitId: 'U' }] }]) {
+    assert.throws(() => normalizeExperimentalDesign(invalid), /experimentalDesign/);
+  }
 });
 test('exclude mode removes flagged sample wells while retaining NTC', () => {
   const r=preparePcrRows(rows,{qcMode:'exclude',qc:{maxCq:35}},api);

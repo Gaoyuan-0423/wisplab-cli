@@ -89,7 +89,8 @@ test('pinned real WispLab engines', {timeout:240000}, async t=>{
     assert.equal(mcp.status,0,mcp.stderr);const reply=JSON.parse(mcp.stdout);assert.equal(reply.result.isError,true);
     const diagnostic=JSON.parse(reply.result.content[0].text).files[0];assert.equal(diagnostic.primaryAnalysis.kind,'biological-groups');
     assert.equal(diagnostic.ntcReport[0].verdict,'contaminated');assert.deepEqual(diagnostic.qcReport.flaggedRowIds,[12]);
-    assert.equal(runPcr(pcrArgs).files[0].primaryAnalysis.statisticalUnit,'well');
+    assert.equal(runPcr(pcrArgs).files[0].primaryAnalysis.statisticalUnit,'descriptive_only');
+    assert.deepEqual(runPcr(pcrArgs).files[0].primaryAnalysis.comparisons,[]);
   });
   await t.test('biological Welch preserves a representable deep-tail p-value against R',()=>{
     const samples={},data=['Sample,Target,Cq'];
