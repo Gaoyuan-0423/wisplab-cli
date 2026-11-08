@@ -26,12 +26,12 @@ function fixture(t, kind, modules) {
   } };
 }
 
-function wbFixture(t) {
+function wbFixture(t, netSignals = [10, 20]) {
   const f = fixture(t, 'wb', {
     'real/pixels': `
       export function decodeRaster(bytes, name) { if (name.includes('corrupt')) throw new Error('corrupt image'); return { width: 20, height: 20, bitDepth: 8, pixels: new Float64Array(400) }; }
       export function proposeRegions() { return [1, 2].map(lane => ({ lane, source: 'automatic', band: {x: 1, y: 1, width: 1, height: 1}, background: {x: 1, y: 2, width: 1, height: 1} })); }
-      export function measureRegion(raster, region) { return { bandSum: 1, backgroundMean: 2, net: 10 * region.lane, warnings: region.source === 'automatic' ? ['CANDIDATES_REQUIRE_REVIEW'] : [] }; }
+      export function measureRegion(raster, region) { return { bandSum: 1, backgroundMean: 2, net: ${JSON.stringify(netSignals)}[region.lane - 1], warnings: region.source === 'automatic' ? ['CANDIDATES_REQUIRE_REVIEW'] : [] }; }
     `,
     'real/rolling-ball': `export function cachedRollingBallBackground() {}; export function measureRegionRollingBall() { throw new Error('not used'); }`,
   });
@@ -57,6 +57,31 @@ test('WB missing control fails instead of silently using lane one', t => {
   assert.equal(r.status, 0);
   assert.match(r.data.images[0].error, /Control lane not found/);
   assert.equal(r.data.images[0].lanes, undefined);
+});
+
+test('WB machine-readable ratios retain precision, small values and signed signals', t => {
+  for (const [nets, expected] of [
+    [[3, 1], [1, 1 / 3]],
+    [[1e8, 1], [1, 1e-8]],
+    [[3, -1], [1, -1 / 3]],
+    [[3, 0], [1, 0]],
+  ]) {
+    const f = wbFixture(t, nets);
+    const r = f.run(f.payload);
+    assert.equal(r.status, 0, r.stderr);
+    const lanes = r.data.images[0].lanes;
+    assert.deepEqual(lanes.map(lane => lane.net), nets);
+    assert.deepEqual(lanes.map(lane => lane.ratio), expected);
+  }
+});
+
+test('WB non-positive control continues to produce unavailable ratios', t => {
+  for (const control of [0, -1]) {
+    const f = wbFixture(t, [control, 10]);
+    const r = f.run(f.payload);
+    assert.equal(r.status, 0, r.stderr);
+    assert.deepEqual(r.data.images[0].lanes.map(lane => lane.ratio), [null, null]);
+  }
 });
 
 test('WB rejects malformed, empty and out-of-image strips', t => {

@@ -52,7 +52,8 @@ for (const path of payload.files) {
     const control = lanes.find((l) => l.lane === payload.controlLane);
     if (!control) throw new Error(`${name}: 对照泳道不存在 / Control lane not found: ${payload.controlLane}`);
     for (const l of lanes) {
-      l.ratio = control && control.net > 0 ? +(l.net / control.net).toFixed(6) : null;
+      // Preserve computational precision in JSON; presentation may round separately.
+      l.ratio = control.net > 0 ? l.net / control.net : null;
     }
     images.push({
       file: name, width: raster.width, height: raster.height, bitDepth: raster.bitDepth,
