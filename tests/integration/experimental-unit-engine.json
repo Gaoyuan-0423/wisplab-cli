@@ -1,0 +1,5 @@
+{
+  "repository": "Gaoyuan-0423/pcr-workbench",
+  "revision": "7eba925fc9404f5c440ea9da6597a58e13ac5ef5",
+  "scope": "Candidate engine for experimentalDesign integration; separate from legacy compatibility lock"
+}

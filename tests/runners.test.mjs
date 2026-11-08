@@ -68,7 +68,7 @@ test('WB rejects malformed, empty and out-of-image strips', t => {
   }
 });
 
-function pcrFixture(t) {
+function pcrFixture(t, modern = false) {
   const f = fixture(t, 'pcr', {
     'core/parse': `
       export async function readInputFile(file) {
@@ -87,7 +87,13 @@ function pcrFixture(t) {
       export function isNtcRow() { return false; }
       export function isStandardRow() { return false; }
       export function extractRows(rows) { return rows.map((r,i) => ({id:i+1,sample:r[0],target:r[1],cq:Number(r[2]),excluded:false})); }
-      export function analyzeDeltaDeltaCt(rows, config) { return { refGenesUsed: config.refGenes, controlSamples: config.controlSamples, effMode: true, efficiencies: config.efficiencies ?? {}, warnings: [], ntcReport: [], results: rows }; }
+      export function analyzeDeltaDeltaCt(rows, config) {
+        const base = { refGenesUsed: config.refGenes, controlSamples: config.controlSamples, effMode: true, efficiencies: config.efficiencies ?? {}, warnings: [], ntcReport: [], results: rows };
+        if (!${modern}) return base;
+        return { ...base, designStatus: config.experimentalDesign?.confirmed ? 'confirmed' : 'unconfirmed', designIssues: [],
+          results: rows.map(row => ({...row,n:3,nTech:3,nBio:1,unitId:'U1',plate:'P',sampleIds:[{plate:'P',sample:row.sample}]})),
+          groupResults: config.experimentalDesign?.confirmed ? [{target:'T',group:'Treatment',nBio:3,nTech:9,pValue:0.02,pAdjusted:null,anovaPValue:null}] : [] };
+      }
     `,
   });
   for (const name of ['table.xlsx', 'table.rdml']) writeFileSync(join(f.dir, name), Buffer.from([80, 75, 255, 0]));
@@ -103,7 +109,10 @@ test('PCR forwards binary files intact and reports first-sheet selection', t => 
   assert.equal(file.sheet, 'First');
   assert.equal(file.inputKind, 'workbook');
   assert.ok(file.warnings.some(warning => /Only the first worksheet/.test(warning)));
-  assert.deepEqual(file.results, [{id:1,sample:'C',target:'T',cq:20,excluded:false}]);
+  assert.deepEqual(file.results, [{id:1,sample:'C',target:'T',cq:20,excluded:false,nTech:null,nBio:null,pValue:null,pAdjusted:null,significance:'',statMethod:'descriptive_only'}]);
+  assert.equal(file.designStatus, 'unsupported');
+  assert.equal(file.inferenceMode, 'descriptive_only');
+  assert.deepEqual(file.groupResults, []);
 });
 
 test('PCR applies RDML efficiencies with explicit values taking precedence', t => {
@@ -117,11 +126,12 @@ test('PCR applies RDML efficiencies with explicit values taking precedence', t =
   assert.deepEqual(file.efficiencies, { T: 92, R: 99 });
 });
 
-test('PCR exposes well-level primary results without biological inference', t => {
+test('PCR exposes descriptive primary results without a design', t => {
   const f=pcrFixture(t);
   const file=f.run({files:[join(f.dir,'table.xlsx')],refGenes:['R'],controlSamples:['C']}).data.files[0];
-  assert.equal(file.primaryAnalysis.kind,'well-level');
-  assert.equal(file.primaryAnalysis.statisticalUnit,'well');
+  assert.equal(file.primaryAnalysis.kind,'descriptive-only');
+  assert.equal(file.primaryAnalysis.statisticalUnit,'descriptive_only');
+  assert.deepEqual(file.primaryAnalysis.comparisons,[]);
   assert.equal(file.primaryAnalysis.status,'success');
   assert.deepEqual(file.primaryAnalysis.summaries,file.results);
 });
@@ -171,4 +181,22 @@ test('PCR parse-only preview selects an exact sheet and never runs analysis/QC',
  assert.ok(!file.warnings.some(w=>w.includes('Only the first worksheet')));
  const bad=f.run({files:[join(f.dir,'table.xlsx')],mode:'preview',importOptions:{sheet:'Missing'}}).data.files[0];
  assert.equal(bad.status,'error');assert.match(bad.error,/Worksheet not found/);assert.equal(bad.primaryAnalysis,undefined);
+});
+
+test('PCR runner forwards confirmed designs and preserves new independent-unit result fields', t => {
+  const f = pcrFixture(t, true);
+  const experimentalDesign = { kind: 'independent', confirmed: true, controlGroup: 'C', assignments: [{ plate: 'P', sample: 'C', unitId: 'U1', group: 'C' }] };
+  const r = f.run({ files: [join(f.dir, 'table.xlsx')], refGenes: ['R'], controlSamples: ['C'], experimentalDesign });
+  assert.equal(r.status, 0, r.stderr);
+  const file = r.data.files[0];
+  assert.equal(file.error, undefined);
+  assert.equal(file.designStatus, 'confirmed');
+  assert.equal(file.inferenceMode, 'independent_units');
+  assert.deepEqual(file.experimentalDesign, experimentalDesign);
+  assert.equal(file.groupResults[0].nBio, 3);
+  assert.equal(file.groupResults[0].nTech, 9);
+  assert.equal(file.results[0].nBio, 1);
+  assert.equal(file.results[0].nTech, 3);
+  assert.equal(file.results[0].pValue, null);
+  assert.equal(file.qcReport.replication.statisticalUnit, 'experimental_unit');
 });

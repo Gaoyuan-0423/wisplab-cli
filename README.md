@@ -118,6 +118,7 @@ wisplab doctor > environment.json
 - 病理引擎对超过 4096 像素边长的图像降采样，16 位 TIFF 转为 8 位工作像素；WB 的 8/16 位图像流程与此不同。
 - IF 用 `--channels R,B` 等参数选择两个不同 RGB 通道，默认 R/G；不提供任意光谱通道或手工阈值。伪彩图需核实实际通道含义。
 - qPCR 显式分组仍限单文件；非配对用 Welch，显式 `--paired --pair-ids` 用完整配对的 t 检验，不推断配对、不提供一般重复测量模型或跨板校正。95% 区间未作多重校正，p 值另作 Holm 校正。优先解读 `primaryAnalysis`；分组失败不得回退到逐孔统计。Excel 可按名称选表，省略时默认首表，不自动合并。
+- 无设计时默认仅描述，样本级 p 值为空。另可使用[引擎实验单位设计](docs/qpcr-design.md)传入板号—样本—单位—组别映射，需兼容引擎；不能与 `biologicalDesign` 同时使用。
 - IHC/IF 可导出本地 PNG、HTML 和结果 JSON；叠加显示阳性染色/通道信号，不是核轮廓。WB 复核图仍使用上游界面。原图点选标注包目前支持 PNG/JPEG，TIFF 须使用符合坐标/哈希规范的外部标注流程。空间比较不提供 Dice/IoU；`compared` 只表示比较完成，不表示精度达标。
 
 分析默认整批时限 5 分钟，IHC/IF 单图 2 分钟，可用 `--timeout-ms` / `--file-timeout-ms` 调整。进度写 stderr；MCP 仅在请求提供进度 token 时通知，支持取消且 `ping` 保持响应。超时、部分失败与清理边界见[运行控制](docs/runtime-controls.md)。

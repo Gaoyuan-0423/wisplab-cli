@@ -12,6 +12,7 @@ import { readInputFile } from "<PCR>/src/core/parse.ts";
 import { computeQcFlags } from "<PCR>/src/core/qc.ts";
 import { mean, sd, welchTTest } from "<PCR>/src/core/stats.ts";
 import { preparePcrRows } from "<CLI>/pcr-qc.mjs";
+import { normalizePcrResult } from "<CLI>/pcr-result.mjs";
 
 import { analyzeBiologicalGroups } from "<CLI>/pcr-groups.mjs";
 import { parsePcrImport } from "<CLI>/pcr-import.mjs";
@@ -21,9 +22,12 @@ const images = [];
 for (const path of payload.files) {
   const name = path.split("/").pop() ?? path;
   const grouped = payload.biologicalDesign != null;
+  const unitDesign = payload.experimentalDesign != null;
+  const primaryKind = grouped ? "biological-groups" : unitDesign ? "experimental-units" : "descriptive-only";
+  const primaryUnit = grouped ? "biological-sample" : unitDesign ? "experimental_unit" : "descriptive_only";
   const record = payload.mode === "preview" ? { file: name, status: "error" } : { file: name, primaryAnalysis: {
-    kind: grouped ? "biological-groups" : "well-level",
-    statisticalUnit: grouped ? "biological-sample" : "well",
+    kind: primaryKind,
+    statisticalUnit: primaryUnit,
     status: "error", summaries: [], comparisons: [], method: null, multiplicityFamilySize: null, error: "Analysis did not complete",
   } };
   try {
@@ -50,7 +54,9 @@ for (const path of payload.files) {
       controlSamples: payload.controlSamples,
       efficiencies: Object.keys(efficiencies).length ? efficiencies : undefined,
       qc: prepared.settings,
+      experimentalDesign: payload.experimentalDesign,
     });
+    const adapted = normalizePcrResult(out, payload.experimentalDesign);
     Object.assign(record, {
       file: name,
       inputKind: input.kind,
@@ -60,32 +66,47 @@ for (const path of payload.files) {
       controlSamples: out.controlSamples,
       effMode: out.effMode,
       efficiencies: out.efficiencies,
-      qcReport: prepared.report,
+      qcReport: grouped ? prepared.report : { ...prepared.report, replication: adapted.replication },
+      ...(!grouped ? {
+        experimentalDesign: payload.experimentalDesign ?? null,
+        designStatus: adapted.designStatus,
+        designIssues: adapted.designIssues,
+        groupResults: adapted.groupResults,
+      } : {}),
+      inferenceMode: grouped ? 'descriptive_only' : adapted.inferenceMode,
       ...(out.results.length === 0 ? { error: "No relative-expression results; inspect reference/control names and QC exclusions / 无相对表达结果，请检查内参、对照及排除行" } : {}),
       warnings: [
         ...imported.report.warnings,
-        prepared.report.replication.note,
+        grouped ? prepared.report.replication.note : adapted.replication.note,
+        ...(!grouped ? adapted.designIssues.map(issue => issue.message) : []),
         ...(prepared.report.flaggedRowIds.length ? [`QC flagged rows / 质控标记行: ${prepared.report.flaggedRowIds.join(", ")}`] : []),
         ...(prepared.report.replicateGroups.some(group => group.highSD) ? ["High replicate SD; groups are reported, not automatically removed / 复孔SD超限仅报告"] : []),
         ...out.warnings,
       ],
       ntcReport: out.ntcReport,
-      results: out.results,
+      results: adapted.results,
     });
-    record.biologicalGroups = analyzeBiologicalGroups(prepared.rows, { ...payload, efficiencies }, { mean, sd, welchTTest, isNtcRow, isStandardRow });
-    if (grouped && !record.biologicalGroups.comparisons.some(comparison => Number.isFinite(comparison.log2FoldChange))) {
-      record.error = "No usable biological treatment/control effect; inspect missing targets/references, complete pairs and QC exclusions / 无可用生物学处理与对照效应，请检查靶标/内参缺失、完整配对及质控排除";
+    // Retain the independently implemented biologicalDesign pathway, including pairing.
+    // Engine experimentalDesign and biologicalDesign are mutually exclusive at the API boundary.
+    if (grouped) {
+      record.biologicalGroups = analyzeBiologicalGroups(prepared.rows, { ...payload, efficiencies }, { mean, sd, welchTTest, isNtcRow, isStandardRow });
+      record.inferenceMode = record.biologicalGroups.comparisons.some(comparison => Number.isFinite(comparison.pValue))
+        ? 'biological_groups' : 'descriptive_only';
+      if (!record.biologicalGroups.comparisons.some(comparison => Number.isFinite(comparison.log2FoldChange))) {
+        record.error = "No usable biological treatment/control effect; inspect missing targets/references, complete pairs and QC exclusions / 无可用生物学处理与对照效应，请检查靶标/内参缺失、完整配对及质控排除";
+      }
+    } else if (unitDesign && ['invalid', 'unsupported'].includes(adapted.designStatus)) {
+      record.error = adapted.designIssues.map(issue => issue.message).join('; ') || `Experimental design is ${adapted.designStatus}`;
     }
+    const confirmed = adapted.designStatus === 'confirmed';
+    const unitGroups = unitDesign && confirmed ? adapted.groupResults : [];
     record.primaryAnalysis = {
-      kind: grouped ? "biological-groups" : "well-level",
-      statisticalUnit: grouped ? "biological-sample" : "well",
+      kind: primaryKind,
+      statisticalUnit: grouped ? primaryUnit : confirmed ? 'experimental_unit' : 'descriptive_only',
       status: record.error ? "error" : "success",
-      summaries: grouped ? record.biologicalGroups.summaries : out.results,
-      comparisons: grouped ? record.biologicalGroups.comparisons : out.results.filter(row => !row.isControl).map(row => ({
-        sample: row.sample, target: row.target, controlSamples: out.controlSamples,
-        pValue: row.pValue, pAdjusted: row.pAdjusted, statMethod: row.statMethod,
-      })),
-      method: grouped ? record.biologicalGroups.method : "See statMethod in each well-level comparison",
+      summaries: grouped ? record.biologicalGroups.summaries : unitDesign && confirmed ? unitGroups : adapted.results,
+      comparisons: grouped ? record.biologicalGroups.comparisons : unitGroups.filter(row => row.group !== payload.experimentalDesign.controlGroup),
+      method: grouped ? record.biologicalGroups.method : unitDesign && confirmed ? "See statMethod in each experimental-unit group result" : "Technical descriptions only; no well-level inference",
       multiplicityFamilySize: grouped ? record.biologicalGroups.multiplicityFamilySize : null,
       error: record.error ?? null,
     };

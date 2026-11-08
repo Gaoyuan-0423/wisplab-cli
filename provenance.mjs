@@ -76,6 +76,7 @@ function finish({ analysis, parameters, inputs }, { startedAt, tick, before, eng
     resolvedParameters: entries.map(entry => ({ file: entry.file, ...(analysis === 'pcr' ? {
       refGenes: entry.refGenesUsed, controlSamples: entry.controlSamples, efficiencies: entry.efficiencies,
       qc: entry.qcReport?.thresholds, excludedRowIds: entry.qcReport?.excludedRowIds,
+        experimentalDesign: entry.experimentalDesign, designStatus: entry.designStatus, inferenceMode: entry.inferenceMode,
     } : { settings: entry.settings }) })),
     checks: { inputsUnchanged: inputRecords.every(input => input.unchanged), engineUnchanged, bridgeUnchanged },
     warnings, error: error ? error.message : result?.error ?? null,

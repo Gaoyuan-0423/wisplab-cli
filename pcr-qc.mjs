@@ -10,7 +10,14 @@ export function preparePcrRows(rows, options, { computeQcFlags, sd, isNtcRow, is
     if (isNtcRow(rows.find(row => row.id === id))) throw new Error(`NTC row ${id} must remain visible in the contamination report`);
   }
   const manual = new Set(excludeRows);
-  const flags = computeQcFlags(rows.map(row => ({ ...row, excluded: manual.has(row.id) })), settings);
+  // Partition here too: older engine QC implementations omit plate from their key.
+  const plateRows = new Map();
+  for (const row of rows) {
+    const plate = row.plate ?? '';
+    if (!plateRows.has(plate)) plateRows.set(plate, []);
+    plateRows.get(plate).push({ ...row, excluded: manual.has(row.id) });
+  }
+  const flags = Object.assign({}, ...[...plateRows.values()].map(group => computeQcFlags(group, settings)));
   const audited = rows.map(row => {
     const reasons = flags[row.id] ?? [];
     const ntc = isNtcRow(row);
@@ -26,7 +33,7 @@ export function preparePcrRows(rows, options, { computeQcFlags, sd, isNtcRow, is
   const groups = new Map();
   for (const row of rows) {
     if (isNtcRow(row) || isStandardRow(row) || !row.sample || !row.target || !Number.isFinite(row.cq)) continue;
-    const key = JSON.stringify([row.sample, row.target]);
+    const key = JSON.stringify([row.plate ?? '', row.sample, row.target]);
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(row);
   }
@@ -34,7 +41,7 @@ export function preparePcrRows(rows, options, { computeQcFlags, sd, isNtcRow, is
     const retained = group.filter(row => !excluded.has(row.id));
     const before = group.length > 1 ? sd(group.map(row => row.cq)) : null;
     const after = retained.length > 1 ? sd(retained.map(row => row.cq)) : null;
-    return { sample: group[0].sample, target: group[0].target, rowIds: group.map(row => row.id),
+    return { plate: group[0].plate ?? '', sample: group[0].sample, target: group[0].target, rowIds: group.map(row => row.id),
       retainedRowIds: retained.map(row => row.id), wellCount: group.length, retainedWellCount: retained.length,
       sdCqBefore: before, sdCqAfter: after, highSD: qc.repSD !== null && before !== null && before > qc.repSD };
   });
@@ -44,7 +51,7 @@ export function preparePcrRows(rows, options, { computeQcFlags, sd, isNtcRow, is
     report: { mode: qcMode, thresholds: qc, rows: audited,
       flaggedRowIds: audited.filter(row => row.flags.length).map(row => row.rowId), excludedRowIds: [...excluded],
       replicateGroups, groupSdPolicy: 'report-only',
-      replication: { aggregationUnit: 'sample-target', statisticalUnit: 'well', biologicalReplicateCount: null,
-        note: 'Sample identifiers and technical wells do not establish independent biological replication. Engine p-values use well-level values; do not interpret them as biological-replicate inference. / 样本名与复孔不能证明生物学独立重复；引擎p值使用逐孔数据。' } },
+      replication: { aggregationUnit: 'plate-sample-target', statisticalUnit: 'descriptive_only', biologicalReplicateCount: null,
+        note: 'QC describes technical wells only; independent-unit inference requires a separately confirmed and supported design / QC仅描述技术孔；独立单位推断需另行确认且引擎支持实验设计' } },
   };
 }

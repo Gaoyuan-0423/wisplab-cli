@@ -9,6 +9,7 @@ import * as lib from "./lib.mjs";
 import { runAnalysisJob } from "./runtime-controls.mjs";
 import { roiManifestSchema } from "./image-review.mjs";
 import { normalizeBiologicalDesign } from "./pcr-groups.mjs";
+import { normalizeExperimentalDesign } from "./pcr-options.mjs";
 import { normalizePcrImportOptions } from "./pcr-import.mjs";
 
 const CLI_DIR = dirname(fileURLToPath(import.meta.url));
@@ -157,7 +158,7 @@ return [
   {
     name: "pcr_analyze",
     description:
-      "Analyze qPCR tables or RDML with optional exact sheet/column mapping. One reference is sufficient. Explicit biological groups use unpaired Welch or paired t inference with 95% log2FC/FC intervals and Holm correction; technical wells do not increase biological n. Without a biological design, legacy well-level results remain explicit. Includes QC and NTC diagnostics.",
+      "Analyze qPCR tables or RDML with optional exact sheet/column mapping. One reference is sufficient. Explicit biological groups use unpaired Welch or paired t inference with 95% log2FC/FC intervals and Holm correction; technical wells do not increase biological n. Alternatively, an explicit experimentalDesign uses the compatible engine unit contract. Supply only one design. Without a design, results are descriptive and legacy well-level p-values are suppressed. Includes QC and NTC diagnostics.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -168,6 +169,18 @@ return [
         files: { type: "array", minItems: 1, items: { type: "string", minLength: 1 }, description: "数据文件路径；默认首表，可用 importOptions.sheet 显式选表 / Data files; first sheet by default, exact name selection optional" },
         refGenes: { type: "array", items: { type: "string", minLength: 1 }, description: "内参基因名，单个即可；多个可选 / One reference gene is sufficient" },
         controlSamples: { type: "array", items: { type: "string", minLength: 1 }, description: "对照样本名（Sample 列中的名字）" },
+        experimentalDesign: {
+          type: "object", additionalProperties: false, required: ["kind", "confirmed", "controlGroup", "assignments"],
+          description: "Explicit user-confirmed design; never infer confirmation from sample names or well counts / 明确确认的实验设计，不从样本名或孔数推断",
+          properties: {
+            kind: { type: "string", enum: ["independent", "paired", "repeated"] },
+            confirmed: { type: "boolean" }, controlGroup: { type: "string" },
+            assignments: { type: "array", items: {
+              type: "object", additionalProperties: false, required: ["plate", "sample", "unitId", "group"],
+              properties: { plate: { type: "string" }, sample: { type: "string", minLength: 1 }, unitId: { type: "string", minLength: 1 }, group: { type: "string", minLength: 1 } },
+            } },
+          },
+        },
         qc: { type: "object", additionalProperties: false, properties: {
           minCq: { type: "number", minimum: 0 }, maxCq: { type: "number", minimum: 0 },
           absDev: { type: "number", exclusiveMinimum: 0 }, zScore: { type: "number", exclusiveMinimum: 0 },
@@ -186,7 +199,7 @@ return [
     },
     call: (a) => engine.runPcr({
       runtime: a.runtime, files: a.files ?? [], refGenes: a.refGenes ?? [], controlSamples: a.controlSamples ?? [],
-      biologicalDesign: a.biologicalDesign ?? null, importOptions: a.importOptions ?? {},
+      biologicalDesign: a.biologicalDesign ?? null, experimentalDesign: a.experimentalDesign, importOptions: a.importOptions ?? {},
       efficiencies: a.efficiencies ?? {}, qc: a.qc ?? {}, qcMode: a.qcMode ?? "report", excludeRows: a.excludeRows ?? [],
     }),
   },
@@ -203,7 +216,7 @@ return [
   {
     name: "pcr_verify",
     description:
-      "Run the independent-reference verification for the pcr engine (4 scenarios: Livak/Pfaffl/Welch/ANOVA/Dunnett vs a from-scratch Python implementation on real QuantStudio data). Pass line: ΔΔCt/Pfaffl ≤1e-09, Welch/ANOVA ≤1e-08, deep-tail Dunnett inside [raw p, k·raw p].",
+      "Execute the supplied external qPCR verification scripts. Historical 4-scenario materials compare a prior calculation contract; they do not validate the current independent-unit design and may require a matching archived engine revision. Script failures are returned, not converted into a validation claim.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -244,7 +257,12 @@ export function createMcpHandler({ cfg, engine = lib, notify = () => {} }) {
     validate(args, tool.inputSchema);
     const input = { ...args };
     if (tool.name === "pcr_analyze" || tool.name === "pcr_preview") input.importOptions = normalizePcrImportOptions(input.importOptions);
-    if (tool.name === "pcr_analyze" && input.biologicalDesign !== undefined) input.biologicalDesign = normalizeBiologicalDesign(input.biologicalDesign);
+    if (tool.name === "pcr_analyze") {
+      if (input.experimentalDesign !== undefined) input.experimentalDesign = normalizeExperimentalDesign(input.experimentalDesign);
+      if (input.experimentalDesign && input.biologicalDesign) throw new Error("Supply experimentalDesign or biologicalDesign, not both");
+      if (input.experimentalDesign && input.files.length !== 1) throw new Error("Experimental design requires exactly one input file");
+      if (input.biologicalDesign !== undefined) input.biologicalDesign = normalizeBiologicalDesign(input.biologicalDesign);
+    }
     if (tool.name === "pcr_verify") {
       input.dir = checkedPath(input.dir ?? join(homedir(), "Downloads", "WispLab预印本验证", "pcr"), roots, "directory");
       for (const script of ["dump_app.ts", "reference_check.py"]) checkedPath(join(input.dir, script), roots);

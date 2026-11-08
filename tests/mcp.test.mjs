@@ -201,7 +201,7 @@ test('stdio drains asynchronous calls at EOF and processes both requests in orde
   copyFileSync(join(root, 'mcp-server.mjs'), join(f.dir, 'mcp-server.mjs'));
   copyFileSync(join(root, 'runtime-controls.mjs'), join(f.dir, 'runtime-controls.mjs'));
   copyFileSync(join(root, 'image-review.mjs'), join(f.dir, 'image-review.mjs'));
-  for (const name of ['pcr-groups.mjs','pcr-inference.mjs','pcr-import.mjs']) copyFileSync(join(root,name),join(f.dir,name));
+  for (const name of ['pcr-groups.mjs','pcr-inference.mjs','pcr-import.mjs', 'pcr-options.mjs']) copyFileSync(join(root,name),join(f.dir,name));
   writeFileSync(join(f.dir, 'package.json'), JSON.stringify({ version: 'test', type: 'module' }));
   writeFileSync(join(f.dir, 'lib.mjs'), `export function config() { return ${JSON.stringify(f.cfg)}; }
     export async function runIhc({ coloc }) {
@@ -324,4 +324,17 @@ test('MCP retains image results while marking review or runtime job errors', asy
     assert.equal(response.result.isError, true);
     assert.equal(JSON.parse(response.result.content[0].text).files[0].value, 42);
   }
+});
+
+test('MCP preserves explicit experimental-unit assignments and rejects malformed confirmation', async t => {
+  const f = fixture(t); const handler = createMcpHandler(f);
+  const design = { kind: 'independent', confirmed: true, controlGroup: 'C', assignments: [{ plate: 'P', sample: 'C1', unitId: 'U1', group: 'C' }] };
+  const result = await handler(call('pcr_analyze', { files: [f.image], experimentalDesign: design }));
+  assert.equal(result.result.isError, false);
+  assert.deepEqual(f.calls[0].experimentalDesign, design);
+  for (const invalid of [{ ...design, confirmed: 'true' }, { ...design, extra: 1 }, { ...design, assignments: [{ sample: 'C1', unitId: 'U1', group: 'C' }] }]) {
+    assert.equal((await handler(call('pcr_analyze', { files: [f.image], experimentalDesign: invalid }))).result.isError, true);
+  }
+  assert.equal((await handler(call('pcr_analyze', { files: [f.image], experimentalDesign: design, biologicalDesign: { samples: {C1:'C',T1:'T'}, controlGroup:'C' } }))).result.isError,true);
+  assert.equal(f.calls.length, 1);
 });

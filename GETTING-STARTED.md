@@ -72,7 +72,7 @@ wisplab pcr /path/to/plate.csv --ref GAPDH --control NC
 
 qPCR 复用上游导入器：支持 CSV/TXT/TSV（UTF-8/GBK）、Excel（XLSX/XLS/XLSM/XLSB）和 RDML。Excel 用 `--sheet` 按准确名称选表，省略时默认首表并提示其他表；不自动合并。`pcr-preview` 可先检查来源行、列映射与问题，`--header-row` 为含空行的 1-based 物理行号，`--columns` 可用准确表头名或 1-based 列号。RDML 中声明的效率会被应用，显式 `--eff` 优先。效率以百分数输入，例如 `--eff "LDHA=92;GAPDH=99"` 表示 92% 和 99%，不是每周期扩增倍数。可配置 Cq 上下限、绝对偏差、z 分数、复孔 SD 报告及显式行排除，默认只报告、不自动剔除；只启用部分规则不代表全部 QC 通过。显式生物学分组使用 `--groups` 与 `--control-group`，默认非配对 Welch；只有已确认实验配对时才加 `--paired --pair-ids`。技术孔不增加生物学 n，配对分析只使用双方均有效的完整配对。95% CI 是单次比较未校正区间，p 值另作 Holm 校正；见[导入与配对说明](docs/pcr-import-design.md)。不提供一般重复测量模型或跨板校正。
 
-单个内参即可分析（例如 `--ref GAPDH`），多内参为可选功能。优先读取每个文件的 `primaryAnalysis`：`kind: biological-groups` 表示用户声明的生物学样本分组，`kind: well-level` 表示逐孔统计。先检查 `status` 和 `error`，再读取 `summaries`、`comparisons`。请求生物学分组后若出现错误，主结果仍是生物学分组的错误状态；不能用保留的 `results` 逐孔统计代替。QC/NTC 诊断可单独复核。
+单个内参即可分析（例如 `--ref GAPDH`），多内参为可选功能。优先读取每个文件的 `primaryAnalysis`：`kind: biological-groups` 表示用户声明的生物学样本分组，`kind: experimental-units` 表示引擎实验单位设计，`kind: descriptive-only` 表示未请求设计的技术描述。无设计时不输出逐孔推断 p 值。先检查 `status` 和 `error`，再读取 `summaries`、`comparisons`。请求生物学分组后若出现错误，主结果仍是生物学分组的错误状态；不能用保留的 `results` 逐孔统计代替。QC/NTC 诊断可单独复核。
 
 逐文件分析错误会保留在 JSON 中，同时使 CLI 退出码为 1，MCP 返回 `isError: true`。即使运行成功，也要检查每个文件的 `warnings`。图像选择、重复设计和阈值不合适时，能够返回数值也不代表结果有效。WB 对照泳道净信号为正时其自身比值应为 1；净信号不为正时比值可能为 `null`。IHC 的核强度 H-score 需结合分割结果复核。
 

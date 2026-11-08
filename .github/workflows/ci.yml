@@ -69,3 +69,29 @@ jobs:
       - run: npm run test:integration
         env:
           WISPLAB_CONFIG: .integration/config.json
+  experimental-units:
+    name: Experimental-unit engine contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Read candidate engine revision
+        id: candidate
+        run: node -e 'const fs=require("node:fs");const pin=JSON.parse(fs.readFileSync("tests/integration/experimental-unit-engine.json"));fs.appendFileSync(process.env.GITHUB_OUTPUT,"revision="+pin.revision+"\n")'
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Gaoyuan-0423/pcr-workbench
+          ref: ${{ steps.candidate.outputs.revision }}
+          path: .engines/pcr-units
+          persist-credentials: false
+      - run: npm ci --no-audit --no-fund
+        working-directory: .engines/pcr-units
+      - run: npm run test:unit-engine
+        env:
+          WISPLAB_UNIT_ENGINE: .engines/pcr-units
