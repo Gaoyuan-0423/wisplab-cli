@@ -92,6 +92,18 @@ const pcrImportSchema = { type:"object",additionalProperties:false,properties:{
 function toolsFor(engine) {
 return [
   {
+    name: "wb_replay",
+    description: "Replay saved blot-workbench .realwb.zip projects using their embedded originals, exact ROIs, review states, pairing and normalization. Does not propose new lanes or override settings. Returns the GUI model's results, summaries and paired-test inputs; computation success does not imply ready/valid scientific results. / 原样重放 WB 项目，保留逐结果状态与警告。",
+    inputSchema: {
+      type: "object", additionalProperties: false, required: ["files"],
+      properties: {
+        runtime: batchRuntimeSchema,
+        files: {type: "array", minItems: 1, items: {type: "string", minLength: 1}, description: "Saved .realwb.zip project paths / 已保存项目路径"},
+      },
+    },
+    call: a => engine.replayWbProject({files: a.files, runtime: a.runtime}),
+  },
+  {
     name: "wb_quantify",
     description:
       "Quantify Western blot membrane image(s) with the blot-workbench engine: lane proposal (optionally restricted to a manually located panel strip), rolling-ball or local background subtraction, dark/light signal, per-lane net signal and ratios vs a control lane. Input: PNG/TIFF paths. Vendor-copyrighted images stay local.",
@@ -235,6 +247,7 @@ function textResult(value) {
 /** Build an isolated dispatcher. Engine injection keeps protocol tests independent of analysis dependencies. */
 export function createMcpHandler({ cfg, engine = lib, notify = () => {} }) {
   if (engine === lib) engine = {
+    replayWbProject: ({ runtime, ...args }) => runAnalysisJob("wb-replay", args, cfg, runtime),
     runWb: ({ runtime, ...args }) => runAnalysisJob("wb", args, cfg, runtime),
     runPcr: ({ runtime, ...args }) => runAnalysisJob("pcr", args, cfg, runtime),
     previewPcr: ({ runtime, ...args }) => runAnalysisJob("pcr-preview", args, cfg, runtime),

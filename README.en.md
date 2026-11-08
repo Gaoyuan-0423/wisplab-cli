@@ -11,6 +11,7 @@ A local CLI and MCP interface for **Western blot, IHC/histology, two-channel imm
 | Command | Engine | Exposed capabilities |
 | --- | --- | --- |
 | `wb` | [blot-workbench](https://github.com/Gaoyuan-0423/blot-workbench) | PNG/TIFF lane proposals, a specified panel strip, local or rolling-ball background subtraction, dark/light signal, net-signal ratios against a control lane |
+| `wb-replay` | WB engine | Replay saved `.realwb.zip` ROIs, design, pairing and normalization through the GUI model; [replay guide](docs/wb-replay.md) |
 | `ihc` | [pathology-workbench](https://github.com/Gaoyuan-0423/pathology-workbench) | Whole-image and hash-bound ROI H-DAB/H&E/Masson analysis; positive area, nuclei/H-score, mpp, nucleus export and local PNG/HTML review; H-DAB negative-control calibration |
 | `if` | Same as above | Pearson, thresholded Pearson, Manders M1/M2 and overlays for two selected RGB channels (default R/G) |
 | `pcr` | [pcr-workbench](https://github.com/Gaoyuan-0423/pcr-workbench) | Selectable sheet/header/columns; single-reference normalization (multiple references optional), ΔΔCt/Pfaffl, QC/NTC, explicit paired/unpaired groups and individual 95% intervals |
@@ -78,7 +79,7 @@ Precedence: `--config <path>` → `WISPLAB_CONFIG` → `wisplab.config.json` in 
 
 `ihc-validate` is a standalone local CLI command and does not read `wisplab.config.json` or `WISPLAB_CONFIG`. Its `ungraded` status means comparison completed, not validation passed.
 
-Six tools are available: `wb_quantify`, `ihc_quantify`, `if_colocalize`, `pcr_preview`, `pcr_analyze`, and `pcr_verify`. Transport is stdio; IHC/IF calls wait for analysis to finish before returning results. The server supports 2026-07-28 `server/discover` and request metadata, while retaining `initialize` negotiation for older clients.
+Seven tools are available: `wb_quantify`, `wb_replay`, `ihc_quantify`, `if_colocalize`, `pcr_preview`, `pcr_analyze`, and `pcr_verify`. Transport is stdio; IHC/IF calls wait for analysis to finish before returning results. The server supports 2026-07-28 `server/discover` and request metadata, while retaining `initialize` negotiation for older clients.
 
 ```json
 {
@@ -113,7 +114,7 @@ The original README's 2026-10-18 M1/M3/M4 numbers were historical validation rec
 
 ## Current limits
 
-- WB reports ratios to a specified lane. It does not automatically perform target/loading-control normalization across images. Use original PNG/TIFF files; converting JPEG to TIFF cannot recover information lost through compression.
+- Image-mode `wb` reports ratios to a specified lane; `wb-replay` uses the reference pairing and normalization saved in a GUI project. Use original PNG/TIFF files; converting JPEG to TIFF cannot recover information lost through compression.
 - IHC accepts source-pixel rectangular ROI manifests, `--mpp` and `--nuclei`; not all segmentation controls or model selection are exposed. IF remains whole-image and does not support ROI import. Nuclear-intensity H-score is not a universal clinical score; meaningful per-mm² density requires a trustworthy mpp.
 - The pathology engine downsamples images with a side longer than 4096 pixels and converts 16-bit TIFF to 8-bit working pixels. WB has a separate 8/16-bit image workflow.
 - IF selects two distinct RGB channels with options such as `--channels R,B`; the default is R/G. Arbitrary spectral channels and manual thresholds are not exposed. Verify channel meaning in pseudocolor images.

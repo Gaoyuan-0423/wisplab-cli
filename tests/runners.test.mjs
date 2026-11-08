@@ -7,10 +7,10 @@ import { spawnSync } from 'node:child_process';
 
 // Minimal upstream interfaces exercise the bridge without installing all three engines.
 // Real engine smoke checks are recorded separately in the verification report.
-function fixture(t, kind, modules) {
+function fixture(t, kind, modules, runnerFile = `${kind}-run.ts`) {
   const dir = mkdtempSync(join(tmpdir(), 'wisplab-runner-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
-  let source = readFileSync(new URL(`../runners/${kind}-run.ts`, import.meta.url), 'utf8');
+  let source = readFileSync(new URL(`../runners/${runnerFile}`, import.meta.url), 'utf8');
   for (const [name, code] of Object.entries(modules)) {
     const path = join(dir, `${name.replaceAll('/', '-')}.mjs`);
     writeFileSync(path, code);
@@ -91,6 +91,54 @@ test('WB rejects malformed, empty and out-of-image strips', t => {
     assert.equal(r.status, 0, strip);
     assert.match(r.data.images[0].error, /strip/);
   }
+});
+
+test('WB project replay retains saved settings and model outputs without proposing lanes', t => {
+  const f = fixture(t, 'wb', {
+    'real/model': `
+      export async function importRealProject(file) { return JSON.parse(await file.text()); }
+      export function effectiveNormalization(project) { return project.normalization; }
+      export function results(project) { return project.expectedResults; }
+      export function descriptiveStatistics(project) { return project.expectedStatistics; }
+      export function realPairedTests(project) { return project.expectedPairedTests; }
+      export function analyzeAll() { throw new Error('must not propose new ROIs'); }
+    `,
+  }, 'wb-replay-run.ts');
+  const project = {
+    format: 'blot-workbench-real', version: 1, id: 'fixture', name: 'Saved project',
+    createdAt: '2026-11-08T00:00:00Z', updatedAt: '2026-11-08T00:01:00Z',
+    laneLabels: ['NC', 'Treatment'], laneDescription: 'NC, Treatment',
+    targetLabel: 'Target', referenceLabel: 'Reference', designConfirmed: false,
+    normalization: {kind: 'reference-unit', unitId: 'unit-2'},
+    backgroundCorrection: {kind: 'rolling-ball', radius: 37}, statisticalTest: 'paired-t',
+    pairedDesign: {pairs: [{groupId: 'g', unitId: 'unit-2', normalLane: 1, tumorLane: 2}]},
+    images: [{id: 'i1', name: 'bands.png', hash: 'a'.repeat(64), bytes: [1, 2, 3], history: [{revision: 1}],
+      regions: [{lane: 1, band: {x: 4, y: 5, width: 6, height: 7}}], reviewed: false, signal: 'light', revision: 2}],
+    expectedResults: [{ratio: 1 / 3, status: 'draft', warnings: ['review required']}],
+    expectedStatistics: [{n: 0, values: [], mean: null, status: 'blocked'}],
+    expectedPairedTests: [{inputPairs: [], status: 'unavailable', reason: 'design-unconfirmed'}],
+  };
+  const good = join(f.dir, 'project.realwb.zip'), bad = join(f.dir, 'broken.realwb.zip');
+  writeFileSync(good, JSON.stringify(project));
+  writeFileSync(bad, 'invalid archive fixture');
+  const r = f.run({files: [good, bad, good]});
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.data.schemaVersion, 'wisplab.wb-replay/v1');
+  assert.equal(r.data.proposalsRun, false);
+  const output = r.data.files[0];
+  assert.deepEqual(output.results, project.expectedResults);
+  assert.deepEqual(output.statistics, project.expectedStatistics);
+  assert.deepEqual(output.pairedTests, project.expectedPairedTests);
+  for (const key of ['laneLabels', 'pairedDesign', 'normalization', 'backgroundCorrection', 'designConfirmed', 'statisticalTest'])
+    assert.deepEqual(output.settings[key], project[key]);
+  assert.deepEqual(output.images[0].regions, project.images[0].regions);
+  assert.equal(output.images[0].reviewed, false);
+  assert.equal(output.images[0].sha256, project.images[0].hash);
+  assert.equal(output.images[0].historyCount, 1);
+  assert.equal(output.images[0].bytes, undefined);
+  assert.equal(output.images[0].history, undefined);
+  assert.ok(r.data.files[1].error);
+  assert.deepEqual(r.data.files[2], output);
 });
 
 function pcrFixture(t, modern = false) {

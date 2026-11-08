@@ -129,7 +129,7 @@ For a client using a `mcpServers` configuration:
 }
 ```
 
-Configuration formats vary by client. The essential setup is to launch `mcp-server.mjs` with Node and provide the absolute config path. The client should list six tools: `wb_quantify`, `ihc_quantify`, `if_colocalize`, `pcr_preview`, `pcr_analyze`, and `pcr_verify`. The last requires separately obtained, trusted verification scripts and data; it is not needed for routine analysis.
+Configuration formats vary by client. Launch `mcp-server.mjs` with Node and the absolute config path. Seven tools are available: `wb_quantify`, `wb_replay`, `ihc_quantify`, `if_colocalize`, `pcr_preview`, `pcr_analyze`, and `pcr_verify`. `wb_replay` [replays saved GUI projects](docs/wb-replay.md); the last tool requires separately obtained, trusted verification scripts and data and is not needed for routine analysis.
 
 Computation is local, but an AI client may transmit prompts, results, or attachments to its model service. This bridge's path checks do not determine those transfers.
 

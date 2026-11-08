@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, realpathSy
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync, spawn } from 'node:child_process';
-import { loadConfig, config, runWb, runPcr, runIhc } from '../lib.mjs';
+import { loadConfig, config, runWb, replayWbProject, runPcr, runIhc } from '../lib.mjs';
 
 const cli = resolve('cli.mjs');
 function fixture(t) {
@@ -44,6 +44,29 @@ test('explicit missing config never silently falls back', (t) => {
   const r = run(['doctor', '--config', join(dir, 'missing.json')], dir, { WISPLAB_CONFIG: cfg });
   assert.notEqual(r.status, 0);
   assert.match(r.stderr, /Config not found/);
+});
+
+test('CLI WB replay keeps saved-project mode, archive provenance and runtime controls', t => {
+  const {dir, engine, cfg} = fixture(t);
+  const archive = join(dir, 'project.realwb.zip');
+  writeFileSync(archive, 'routing fixture');
+  const r = run(['wb-replay', archive, '--config', cfg, '--timeout-ms', '6000'], dir);
+  assert.equal(r.status, 0, r.stderr);
+  const output = JSON.parse(r.stdout);
+  assert.equal(output.selectedEngine, engine);
+  assert.deepEqual(output.payload, {files: [archive]});
+  assert.equal(output.runtime.timeoutMs, 6000);
+  assert.equal(output.provenance.analysis, 'wb-replay');
+  assert.deepEqual(output.provenance.parameters, {mode: 'saved-project', proposalsRun: false});
+  assert.equal(output.provenance.inputs[0].role, 'project-archive');
+  assert.equal(output.provenance.checks.inputsUnchanged, true);
+  for (const args of [['--control', '2'], ['--lanes', '4'], ['--bg', 'rolling:30'], ['--signal', 'light']]) {
+    const rejected = run(['wb-replay', archive, '--config', cfg, ...args], dir);
+    assert.notEqual(rejected.status, 0);
+    assert.equal(rejected.stdout, '');
+  }
+  assert.notEqual(run(['wb-replay', '--config', cfg], dir).status, 0);
+  assert.throws(() => replayWbProject({files: [archive], signal: 'light'}), /parameter overrides/);
 });
 test('environment config reaches shared dispatch', (t) => {
   const { dir, engine, cfg } = fixture(t);

@@ -13,6 +13,7 @@ process.once('message', async ({ operation, args, configSnapshot, runtime }) => 
     if (operation === 'ihc-engine') {
       result = await lib.runIhcEngine({ ...args, onEvent: event => process.send({ type: 'event', event }) });
     } else if (operation === 'wb') result = lib.runWb({ ...args, runtime });
+    else if (operation === 'wb-replay') result = lib.replayWbProject({ ...args, runtime });
     else if (operation === 'pcr') result = lib.runPcr({ ...args, runtime });
     else if (operation === 'pcr-preview') result = lib.previewPcr({ ...args, runtime });
     else if (operation === 'verify-pcr') result = lib.runVerifyPcr(args.dir);
