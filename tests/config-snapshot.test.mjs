@@ -16,6 +16,12 @@ function fixture(t) {
     mkdirSync(join(path, 'node_modules', '.bin'), { recursive: true });
     writeFileSync(join(path, 'package.json'), '{"version":"fixture"}');
     writeFileSync(join(path, 'node_modules', '.bin', 'tsx'), `#!${process.execPath}\nconsole.log('@@WISPLAB@@'+JSON.stringify({selectedEngine:process.cwd(),payload:JSON.parse(process.argv[3])}));\n`, { mode: 0o755 });
+    // A local sentinel makes the selected engine observable even when the host
+    // has Playwright installed in an ancestor directory or through NODE_PATH.
+    const playwright = join(path, 'node_modules', 'playwright');
+    mkdirSync(playwright, { recursive: true });
+    writeFileSync(join(playwright, 'package.json'), '{"main":"index.cjs"}');
+    writeFileSync(join(playwright, 'index.cjs'), `throw new Error(${JSON.stringify(`Fixture Playwright loaded from ${join(path, 'package.json')}`)});\n`);
   }
   const git = (...args) => execFileSync('git', ['-C', engine, ...args], { stdio: 'pipe' });
   git('init'); git('add', 'package.json');
@@ -49,7 +55,7 @@ for (const change of ['rewrite', 'delete']) test(`workers and IHC provenance kee
     assert.equal(result.provenance.engine.before.revision, f.revision);
   }
   const result = await runIhc({ files: [f.input] }, snapshot);
-  assert.match(result.files[0].error, /Cannot find module 'playwright'/);
+  assert.match(result.files[0].error, /Fixture Playwright loaded from/);
   assert.ok(result.files[0].error.includes(join(f.engine, 'package.json')), result.files[0].error);
   assert.equal(result.provenance.engine.before.revision, f.revision);
   assert.equal(result.provenance.parameters.devPort, 5289);
