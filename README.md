@@ -11,6 +11,7 @@ WispLab 的本地命令行与 MCP 接口，用于 **Western blot、IHC/组织染
 | 命令 | 引擎 | 当前接口提供的能力 |
 | --- | --- | --- |
 | `wb` | [blot-workbench](https://github.com/Gaoyuan-0423/blot-workbench) | PNG/TIFF 泳道提议、指定条带范围、局部或 rolling-ball 背景扣除、亮/暗信号、相对对照泳道的净信号比值 |
+| `wb-replay` | 同 WB 引擎 | 按 `.realwb.zip` 保存的 ROI、设计、配对和归一化重放，输出 GUI 模型结果与统计；[重放说明](docs/wb-replay.md) |
 | `ihc` | [pathology-workbench](https://github.com/Gaoyuan-0423/pathology-workbench) | H-DAB、H&E、Masson 整图及哈希绑定 ROI；阳性面积、核计数/H-score、mpp 标尺、核中心导出、本地 PNG/HTML 复核；H-DAB 阴性对照片标定 |
 | `if` | 同上 | 可选两个不同 RGB 通道（默认 R/G）的 Pearson、阈值后 Pearson、Manders M1/M2 和本地叠加图 |
 | `pcr` | [pcr-workbench](https://github.com/Gaoyuan-0423/pcr-workbench) | 可选工作表/表头/列映射；单内参归一化（多内参可选）、ΔΔCt/Pfaffl、QC/NTC、显式非配对/配对分组与单次比较 95% 区间 |
@@ -78,7 +79,7 @@ wisplab ihc-validate result.json reference.json
 
 `ihc-validate` 是独立的本地 CLI 命令，不读取 `wisplab.config.json` 或 `WISPLAB_CONFIG`。其 `ungraded` 状态仅表示比较完成，不能视为验证通过。
 
-六个工具：`wb_quantify`、`ihc_quantify`、`if_colocalize`、`pcr_preview`、`pcr_analyze`、`pcr_verify`。使用 stdio 传输；IHC/IF 调用会等待分析完成后返回结果。支持 2026-07-28 的 `server/discover` 与请求元数据，并保留旧客户端的 `initialize` 协商。
+七个工具：`wb_quantify`、`wb_replay`、`ihc_quantify`、`if_colocalize`、`pcr_preview`、`pcr_analyze`、`pcr_verify`。使用 stdio 传输；IHC/IF 调用会等待分析完成后返回结果。支持 2026-07-28 的 `server/discover` 与请求元数据，并保留旧客户端的 `initialize` 协商。
 
 ```json
 {
@@ -113,7 +114,7 @@ wisplab doctor > environment.json
 
 ## 当前边界
 
-- WB 输出相对指定泳道的比值，不自动完成目标蛋白/上样内参的双重归一化。需要原始 PNG/TIFF；JPEG 转成 TIFF 不能恢复压缩时丢失的信息。
+- 图像命令 `wb` 输出相对指定泳道的比值；`wb-replay` 复用已保存 GUI 项目的内参配对和归一化设置。需要原始 PNG/TIFF；JPEG 转成 TIFF 不能恢复压缩时丢失的信息。
 - IHC 支持从清单导入原图像素矩形 ROI、`--mpp` 和 `--nuclei`；未暴露全部分割设置或模型选择。IF 仍为整图，不支持 ROI。核强度 H-score 不是通用临床评分；没有可信 mpp 时不能解释每 mm² 密度。
 - 病理引擎对超过 4096 像素边长的图像降采样，16 位 TIFF 转为 8 位工作像素；WB 的 8/16 位图像流程与此不同。
 - IF 用 `--channels R,B` 等参数选择两个不同 RGB 通道，默认 R/G；不提供任意光谱通道或手工阈值。伪彩图需核实实际通道含义。

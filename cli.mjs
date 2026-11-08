@@ -18,6 +18,7 @@ const HELP = `wisplab — WispLab 三引擎无头定量（与 MCP server 共用�
 
   wisplab wb  <图...>  [--lanes N] [--strip y,h,x0,x1] [--bg local|rolling[:半径]]
                        [--signal dark|light] [--control 泳道号]
+  wisplab wb-replay <项目.realwb.zip...>  原样重放保存的 ROI、设计和归一化 / Replay saved projects
   wisplab ihc <图...>  [--profile h_dab|h_eosin|masson] [--control-tif 对照片]
                        [--roi-manifest rois.json] [--mpp 原图µm/px] [--nuclei] [--review-dir 已存在目录]
   wisplab ihc-validate <result.json> <reference.json>  离线参考值比较，无需引擎配置 / Offline reference comparison; no engine config
@@ -73,6 +74,7 @@ try {
   } else {
     const allowed = {
       wb: ["timeout-ms", "lanes", "strip", "bg", "signal", "control"],
+      "wb-replay": ["timeout-ms"],
       pcr: ["timeout-ms", "ref", "control", "eff", "min-cq", "max-cq", "abs-dev", "z-score", "rep-sd", "qc-mode", "exclude-rows", "groups", "control-group", "sheet", "header-row", "columns", "paired", "pair-ids"],
       "pcr-preview": ["timeout-ms", "sheet", "header-row", "columns"],
       ihc: ["timeout-ms", "file-timeout-ms", "profile", "control-tif", "coloc", "roi-manifest", "channels", "mpp", "nuclei", "review-dir"], if: ["timeout-ms", "file-timeout-ms", "channels", "review-dir"],
@@ -81,7 +83,7 @@ try {
     if (!allowed[cmd]) throw new Error(`未知命令 / Unknown command: ${cmd}`);
     for (const key of Object.keys(opts)) if (key !== "config" && !allowed[cmd].includes(key)) throw new Error(`--${key}: unsupported for ${cmd}`);
     if (!["ihc-validate", "ihc-annotation-pack", "ihc-nuclei-validate"].includes(cmd)) config(opts.config);
-    const runtime = ["wb", "pcr", "pcr-preview", "ihc", "if"].includes(cmd) ? normalizeRuntime({
+    const runtime = ["wb", "wb-replay", "pcr", "pcr-preview", "ihc", "if"].includes(cmd) ? normalizeRuntime({
       ...(opts["timeout-ms"] !== undefined ? { timeoutMs: Number(opts["timeout-ms"]) } : {}),
       ...(opts["file-timeout-ms"] !== undefined ? { fileTimeoutMs: Number(opts["file-timeout-ms"]) } : {}),
       onProgress: ({ progress, total, message }) => console.error(`wisplab: ${progress}/${total ?? "?"} ${message}`),
@@ -113,6 +115,9 @@ try {
       const result = doctor({ strict: Boolean(opts.strict) });
       console.log(JSON.stringify(result, null, 2));
       process.exitCode = (opts.strict ? result.verified : result.ready) ? 0 : 1;
+    } else if (cmd === "wb-replay") {
+      if (!files.length) throw new Error("wb-replay: 至少一个项目包 / At least one saved project is required");
+      emitAnalysis(await runAnalysisJob("wb-replay", {files}, config(), runtime));
     } else if (cmd === "wb") {
       if (!files.length) throw new Error("wb：至少一个图像文件");
       const bg = String(opts.bg ?? "local");

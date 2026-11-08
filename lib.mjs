@@ -115,6 +115,19 @@ export function runWb({ files, lanes = null, strip = null, bg = "local", radius 
     }, normalizeRuntime(runtime).timeoutMs));
 }
 
+export function replayWbProject({ files, runtime = {}, ...overrides }) {
+  validateFiles(files);
+  if (Object.keys(overrides).length) throw new Error("WB replay uses saved project settings; parameter overrides are not supported / 重放使用项目已保存的设置，不接受参数覆盖");
+  const engineDir = repo("wb");
+  return trackAnalysisSync({
+    analysis: "wb-replay", engineDir, bridgeDir: CLI_DIR,
+    parameters: { mode: "saved-project", proposalsRun: false },
+    inputs: files.map(path => ({path, role: "project-archive"})),
+  }, () => runRunner(engineDir, "wb-replay-run.ts", {
+    files: files.map(path => resolve(path)),
+  }, normalizeRuntime(runtime).timeoutMs));
+}
+
 export function runPcr({ files, refGenes = [], controlSamples = [], efficiencies = {}, qc = {}, qcMode = "report", excludeRows = [], biologicalDesign = null, experimentalDesign, importOptions = {}, runtime = {} }) {
   validateFiles(files);
   for (const [name, values] of Object.entries({ refGenes, controlSamples })) {

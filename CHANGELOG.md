@@ -1,5 +1,12 @@
 # Changelog / 更新记录
 
+## Unreleased — WB replay and numeric precision
+
+- 新增 `wb-replay` / `wb_replay`，复用 GUI 项目读取、结果和统计模型，保留固定 ROI、设计、状态与来源；不提议新泳道或覆盖设置。 / Replay saved GUI projects through the same importer and result/statistical model, preserving fixed ROIs, design, status and sources without proposals or overrides.
+- WB 图像模式 JSON 比值不再提前舍入到六位小数，保留小值和符号。 / Preserve computational precision and signed small ratios in image-mode WB JSON.
+- 配置快照测试使用本地 Playwright 哨兵，避免测试结果受宿主依赖安装影响。 / Make configuration-snapshot checks independent of host Playwright installations.
+- 新增合成图手算锚点、固定项目重放和错误隔离检查；没有新增外部实验验证。 / Add synthetic numerical anchors, archive replay and error-isolation checks; no new external experimental validation.
+
 
 ## Unreleased — confirmed experimental units
 

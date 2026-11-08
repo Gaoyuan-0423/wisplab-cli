@@ -29,6 +29,7 @@ function fixture(t) {
   writeFileSync(image, 'synthetic test fixture'); writeFileSync(other, 'outside');
   const calls = [];
   const engine = {
+    replayWbProject: (a) => { calls.push(a); return { files: a.files }; },
     runWb: (a) => { calls.push(a); return { files: a.files }; },
     runPcr: (a) => { calls.push(a); return { files: a.files }; },
     previewPcr: (a) => { calls.push(a); return { files: a.files }; },
@@ -44,7 +45,7 @@ test('modern discovery advertises explicit versions and modern results', async (
   assert.deepEqual(result.supportedVersions, SUPPORTED_VERSIONS);
   assert.equal(result.resultType, 'complete');
   assert.equal(result._meta['io.modelcontextprotocol/serverInfo'].version, JSON.parse(readFileSync(join(root, 'package.json'))).version);
-  assert.equal((await handle(request('tools/list'))).result.tools.length, 6);
+  assert.equal((await handle(request('tools/list'))).result.tools.length, 7);
 });
 
 test('legacy negotiation never echoes an unsupported or modern version', async (t) => {
@@ -54,7 +55,7 @@ test('legacy negotiation never echoes an unsupported or modern version', async (
   }
   assert.equal((await handle(initialize('2024-11-05'))).result.protocolVersion, '2024-11-05');
   const listed = await handle({ jsonrpc: '2.0', id: 2, method: 'tools/list' });
-  assert.equal(listed.result.tools.length, 6);
+  assert.equal(listed.result.tools.length, 7);
   assert.equal(listed.result.resultType, undefined);
 });
 
@@ -110,6 +111,22 @@ test('allowPaths rejects traversal, sibling prefixes and escaping symlinks', asy
     assert.match(response.result.content[0].text, /outside allowPaths/);
   }
   assert.equal(f.calls.length, 0);
+});
+
+test('WB replay enforces archive path boundaries and rejects setting overrides', async t => {
+  const f = fixture(t), handle = createMcpHandler(f);
+  const accepted = await handle(call('wb_replay', {files: [f.image]}));
+  assert.equal(accepted.result.isError, false);
+  assert.deepEqual(f.calls[0].files, [realpathSync(f.image)]);
+  assert.equal(f.calls[0].bg, undefined);
+  assert.equal(f.calls[0].controlLane, undefined);
+  const link = join(f.allowed, 'outside.realwb.zip');
+  symlinkSync(f.other, link);
+  for (const args of [
+    {files: [f.other]}, {files: [link]}, {files: [f.image], bg: 'local'},
+    {files: [f.image], signal: 'light'}, {files: []},
+  ]) assert.equal((await handle(call('wb_replay', args))).result.isError, true);
+  assert.equal(f.calls.length, 1);
 });
 
 test('controlTif is checked with the same policy as primary images', async (t) => {

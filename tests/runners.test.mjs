@@ -7,10 +7,10 @@ import { spawnSync } from 'node:child_process';
 
 // Minimal upstream interfaces exercise the bridge without installing all three engines.
 // Real engine smoke checks are recorded separately in the verification report.
-function fixture(t, kind, modules) {
+function fixture(t, kind, modules, runnerFile = `${kind}-run.ts`) {
   const dir = mkdtempSync(join(tmpdir(), 'wisplab-runner-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
-  let source = readFileSync(new URL(`../runners/${kind}-run.ts`, import.meta.url), 'utf8');
+  let source = readFileSync(new URL(`../runners/${runnerFile}`, import.meta.url), 'utf8');
   for (const [name, code] of Object.entries(modules)) {
     const path = join(dir, `${name.replaceAll('/', '-')}.mjs`);
     writeFileSync(path, code);
@@ -26,12 +26,12 @@ function fixture(t, kind, modules) {
   } };
 }
 
-function wbFixture(t) {
+function wbFixture(t, netSignals = [10, 20]) {
   const f = fixture(t, 'wb', {
     'real/pixels': `
       export function decodeRaster(bytes, name) { if (name.includes('corrupt')) throw new Error('corrupt image'); return { width: 20, height: 20, bitDepth: 8, pixels: new Float64Array(400) }; }
       export function proposeRegions() { return [1, 2].map(lane => ({ lane, source: 'automatic', band: {x: 1, y: 1, width: 1, height: 1}, background: {x: 1, y: 2, width: 1, height: 1} })); }
-      export function measureRegion(raster, region) { return { bandSum: 1, backgroundMean: 2, net: 10 * region.lane, warnings: region.source === 'automatic' ? ['CANDIDATES_REQUIRE_REVIEW'] : [] }; }
+      export function measureRegion(raster, region) { return { bandSum: 1, backgroundMean: 2, net: ${JSON.stringify(netSignals)}[region.lane - 1], warnings: region.source === 'automatic' ? ['CANDIDATES_REQUIRE_REVIEW'] : [] }; }
     `,
     'real/rolling-ball': `export function cachedRollingBallBackground() {}; export function measureRegionRollingBall() { throw new Error('not used'); }`,
   });
@@ -59,6 +59,31 @@ test('WB missing control fails instead of silently using lane one', t => {
   assert.equal(r.data.images[0].lanes, undefined);
 });
 
+test('WB machine-readable ratios retain precision, small values and signed signals', t => {
+  for (const [nets, expected] of [
+    [[3, 1], [1, 1 / 3]],
+    [[1e8, 1], [1, 1e-8]],
+    [[3, -1], [1, -1 / 3]],
+    [[3, 0], [1, 0]],
+  ]) {
+    const f = wbFixture(t, nets);
+    const r = f.run(f.payload);
+    assert.equal(r.status, 0, r.stderr);
+    const lanes = r.data.images[0].lanes;
+    assert.deepEqual(lanes.map(lane => lane.net), nets);
+    assert.deepEqual(lanes.map(lane => lane.ratio), expected);
+  }
+});
+
+test('WB non-positive control continues to produce unavailable ratios', t => {
+  for (const control of [0, -1]) {
+    const f = wbFixture(t, [control, 10]);
+    const r = f.run(f.payload);
+    assert.equal(r.status, 0, r.stderr);
+    assert.deepEqual(r.data.images[0].lanes.map(lane => lane.ratio), [null, null]);
+  }
+});
+
 test('WB rejects malformed, empty and out-of-image strips', t => {
   const f = wbFixture(t);
   for (const strip of ['0,10,0', '0,10,,20', '0.5,10,0,20', '0,0,0,20', '0,10,5,5', '15,10,0,20', '0,10,0,21', '-1,10,0,20']) {
@@ -66,6 +91,54 @@ test('WB rejects malformed, empty and out-of-image strips', t => {
     assert.equal(r.status, 0, strip);
     assert.match(r.data.images[0].error, /strip/);
   }
+});
+
+test('WB project replay retains saved settings and model outputs without proposing lanes', t => {
+  const f = fixture(t, 'wb', {
+    'real/model': `
+      export async function importRealProject(file) { return JSON.parse(await file.text()); }
+      export function effectiveNormalization(project) { return project.normalization; }
+      export function results(project) { return project.expectedResults; }
+      export function descriptiveStatistics(project) { return project.expectedStatistics; }
+      export function realPairedTests(project) { return project.expectedPairedTests; }
+      export function analyzeAll() { throw new Error('must not propose new ROIs'); }
+    `,
+  }, 'wb-replay-run.ts');
+  const project = {
+    format: 'blot-workbench-real', version: 1, id: 'fixture', name: 'Saved project',
+    createdAt: '2026-11-08T00:00:00Z', updatedAt: '2026-11-08T00:01:00Z',
+    laneLabels: ['NC', 'Treatment'], laneDescription: 'NC, Treatment',
+    targetLabel: 'Target', referenceLabel: 'Reference', designConfirmed: false,
+    normalization: {kind: 'reference-unit', unitId: 'unit-2'},
+    backgroundCorrection: {kind: 'rolling-ball', radius: 37}, statisticalTest: 'paired-t',
+    pairedDesign: {pairs: [{groupId: 'g', unitId: 'unit-2', normalLane: 1, tumorLane: 2}]},
+    images: [{id: 'i1', name: 'bands.png', hash: 'a'.repeat(64), bytes: [1, 2, 3], history: [{revision: 1}],
+      regions: [{lane: 1, band: {x: 4, y: 5, width: 6, height: 7}}], reviewed: false, signal: 'light', revision: 2}],
+    expectedResults: [{ratio: 1 / 3, status: 'draft', warnings: ['review required']}],
+    expectedStatistics: [{n: 0, values: [], mean: null, status: 'blocked'}],
+    expectedPairedTests: [{inputPairs: [], status: 'unavailable', reason: 'design-unconfirmed'}],
+  };
+  const good = join(f.dir, 'project.realwb.zip'), bad = join(f.dir, 'broken.realwb.zip');
+  writeFileSync(good, JSON.stringify(project));
+  writeFileSync(bad, 'invalid archive fixture');
+  const r = f.run({files: [good, bad, good]});
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.data.schemaVersion, 'wisplab.wb-replay/v1');
+  assert.equal(r.data.proposalsRun, false);
+  const output = r.data.files[0];
+  assert.deepEqual(output.results, project.expectedResults);
+  assert.deepEqual(output.statistics, project.expectedStatistics);
+  assert.deepEqual(output.pairedTests, project.expectedPairedTests);
+  for (const key of ['laneLabels', 'pairedDesign', 'normalization', 'backgroundCorrection', 'designConfirmed', 'statisticalTest'])
+    assert.deepEqual(output.settings[key], project[key]);
+  assert.deepEqual(output.images[0].regions, project.images[0].regions);
+  assert.equal(output.images[0].reviewed, false);
+  assert.equal(output.images[0].sha256, project.images[0].hash);
+  assert.equal(output.images[0].historyCount, 1);
+  assert.equal(output.images[0].bytes, undefined);
+  assert.equal(output.images[0].history, undefined);
+  assert.ok(r.data.files[1].error);
+  assert.deepEqual(r.data.files[2], output);
 });
 
 function pcrFixture(t, modern = false) {
