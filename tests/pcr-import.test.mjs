@@ -53,3 +53,8 @@ test('RDML declares generated-table coordinates and rejects irrelevant sheet sel
   assert.deepEqual(r.preview.rows[0].rawValues,['C','T','20']);
   assert.equal(worksheetSourceMatrix({'!ref':'A1',A1:{t:'e',v:7,w:'#DIV/0!'}})[0][0],'#DIV/0!');
 });
+test('Excel numbers keep full precision instead of rounding to 1e-10',()=>{
+  const m=worksheetSourceMatrix({'!ref':'A1:C1',A1:{t:'n',v:1e-12},B1:{t:'n',v:3.4e-11},C1:{t:'n',v:25.123456789012}});
+  assert.deepEqual(m[0],['1e-12','3.4e-11','25.123456789012']);
+  assert.equal(Number(m[0][0]),1e-12);
+});

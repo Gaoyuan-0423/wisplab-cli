@@ -33,7 +33,8 @@ function columnLetter(col) {
 function cellText(value) {
   if(value==null)return '';
   if(value instanceof Date)return value.toISOString().slice(0,10);
-  if(typeof value==='number')return Number.isInteger(value)?String(value):String(Math.round(value*1e10)/1e10);
+  // Shortest round-trip text: rounding here would turn a 1e-12 standard into 0.
+  if(typeof value==='number')return String(value);
   return String(value).trim();
 }
 
