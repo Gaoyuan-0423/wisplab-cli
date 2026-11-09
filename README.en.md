@@ -78,7 +78,7 @@ Precedence: `--config <path>` → `WISPLAB_CONFIG` → `wisplab.config.json` in 
 
 `ihc-validate` is a standalone local CLI command and does not read `wisplab.config.json` or `WISPLAB_CONFIG`. Its `ungraded` status means comparison completed, not validation passed.
 
-Five tools are available by default: `wb_quantify`, `ihc_quantify`, `if_colocalize`, `pcr_preview` and `pcr_analyze`. `pcr_verify` executes local scripts and is off by default; enable it with `"verify": { "allowMcp": true, "dir": "<trusted verification directory>" }`. It runs only that configured directory; clients cannot choose the directory. Transport is stdio; IHC/IF calls wait for analysis to finish before returning results. The server supports 2026-07-28 `server/discover` and request metadata, while retaining `initialize` negotiation for older clients.
+Five tools are available by default: `wb_quantify`, `ihc_quantify`, `if_colocalize`, `pcr_preview` and `pcr_analyze`. `pcr_verify` executes local scripts and is off by default; enable it with `"verify": { "allowMcp": true, "dir": "<trusted verification directory>" }`. It runs only that configured directory; clients cannot choose the directory. MCP runs Python with `python3 -I` in the verification directory: `PYTHONPATH` and user site-packages are ignored, and the script directory is not automatically added to the module search path. The `verify-pcr` command retains its original Python import behavior and caller working directory. Transport is stdio; IHC/IF calls wait for analysis to finish before returning results. The server supports 2026-07-28 `server/discover` and request metadata, while retaining `initialize` negotiation for older clients.
 
 ```json
 {
