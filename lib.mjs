@@ -33,7 +33,9 @@ export function loadConfig(configPath) {
   const allowPaths = (cfg.allowPaths ?? [join(homedir(), "Downloads"), tmpdir(), "/tmp"]).map((value) => expandPath(value, base));
   const devPort = cfg.ihc?.devPort ?? 5173;
   if (!Number.isInteger(devPort) || devPort < 1 || devPort > 65535) throw new Error("ihc.devPort 必须是 1–65535 的整数 / Invalid port");
-  return { ...cfg, path, repos, allowPaths, ihc: { ...cfg.ihc, devPort } };
+  const verify = cfg.verify && typeof cfg.verify === "object" && typeof cfg.verify.dir === "string" && cfg.verify.dir.trim()
+    ? { ...cfg.verify, dir: expandPath(cfg.verify.dir, base) } : cfg.verify;
+  return { ...cfg, path, repos, allowPaths, ihc: { ...cfg.ihc, devPort }, ...(verify === undefined ? {} : { verify }) };
 }
 
 let cachedCfg = null;
@@ -150,14 +152,18 @@ export function previewPcr({ files, importOptions = {}, runtime = {} }) {
     () => runRunner(engineDir, "pcr-run.ts", { files: files.map(f => resolve(f)), ...parameters }, normalizeRuntime(runtime).timeoutMs));
 }
 
-export function runVerifyPcr(dir) {
+export function runVerifyPcr(dir, { isolated = false } = {}) {
   const target = resolve(dir ?? join(process.env.HOME ?? "", "Downloads", "WispLab预印本验证", "pcr"));
   if (!existsSync(join(target, "dump_app.ts")) || !existsSync(join(target, "reference_check.py")))
     throw new Error(`verify 材料目录不存在或不完整：${target}（dump_app.ts + reference_check.py 需同时在场；材料随验证记录分发）`);
   const repoPath = repo("pcr");
   const d = spawnSync(tsxBin(repoPath), [join(target, "dump_app.ts")], { cwd: repoPath, encoding: "utf8", timeout: 300_000 });
   if (d.status !== 0) throw new Error(`dump 失败：${(d.stderr || d.stdout || "").slice(-400)}`);
-  const c = spawnSync("python3", [join(target, "reference_check.py")], { encoding: "utf8", timeout: 600_000 });
+  // MCP explicitly enables isolation: ignore PYTHON* variables and user site-packages,
+  // and prevent the script directory from shadowing standard-library imports. Direct
+  // CLI/API use retains the original Python import and working-directory behavior.
+  const args = isolated ? ["-I", join(target, "reference_check.py")] : [join(target, "reference_check.py")];
+  const c = spawnSync("python3", args, { ...(isolated ? { cwd: target } : {}), encoding: "utf8", timeout: 600_000 });
   return { exitCode: c.status ?? 1, output: (c.stdout || "") + (c.stderr || "") };
 }
 

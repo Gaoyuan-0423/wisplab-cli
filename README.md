@@ -78,7 +78,7 @@ wisplab ihc-validate result.json reference.json
 
 `ihc-validate` 是独立的本地 CLI 命令，不读取 `wisplab.config.json` 或 `WISPLAB_CONFIG`。其 `ungraded` 状态仅表示比较完成，不能视为验证通过。
 
-六个工具：`wb_quantify`、`ihc_quantify`、`if_colocalize`、`pcr_preview`、`pcr_analyze`、`pcr_verify`。使用 stdio 传输；IHC/IF 调用会等待分析完成后返回结果。支持 2026-07-28 的 `server/discover` 与请求元数据，并保留旧客户端的 `initialize` 协商。
+默认五个工具：`wb_quantify`、`ihc_quantify`、`if_colocalize`、`pcr_preview`、`pcr_analyze`。`pcr_verify` 会执行本地脚本，默认不开放；需在配置中写 `"verify": { "allowMcp": true, "dir": "<可信验证材料目录>" }`，且只运行该目录中的脚本，客户端不能指定目录。MCP 的 Python 验证以 `python3 -I` 隔离模式在验证目录运行：忽略 `PYTHONPATH` 与用户 site-packages，脚本目录不会自动加入模块搜索路径。命令行 `verify-pcr` 保留原有的 Python 导入规则和调用时工作目录。使用 stdio 传输；IHC/IF 调用会等待分析完成后返回结果。支持 2026-07-28 的 `server/discover` 与请求元数据，并保留旧客户端的 `initialize` 协商。
 
 ```json
 {
