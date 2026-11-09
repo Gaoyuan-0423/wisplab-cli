@@ -1,5 +1,8 @@
 # Changelog / 更新记录
 
+## Unreleased — security: opt-in pcr_verify
+
+- 安全：MCP 默认不再暴露 `pcr_verify`；需配置 `verify.allowMcp: true` 才开放，且只执行 `verify.dir` 中的脚本，客户端不能再传入目录（此前默认 allowPaths 含下载目录与 /tmp，同名脚本可被诱导执行）。Python 验证脚本以 `-I` 隔离模式运行。 / Security: `pcr_verify` is no longer exposed over MCP by default; it requires `verify.allowMcp: true`, runs only scripts in the configured `verify.dir`, and no longer accepts a client-supplied directory. Python verification runs in isolated mode (`-I`).
 
 ## Unreleased — confirmed experimental units
 

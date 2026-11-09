@@ -129,7 +129,7 @@ AI 必须使用实际输出，不应自行编造缺少的对照、内参、数�
 }
 ```
 
-不同客户端配置格式可能不同；要点是用 Node 启动 `mcp-server.mjs` 并传入配置绝对路径。客户端应列出六个工具：`wb_quantify`、`ihc_quantify`、`if_colocalize`、`pcr_preview`、`pcr_analyze`、`pcr_verify`。后者需要另行取得可信的验证脚本和数据，普通分析不需要它。
+不同客户端配置格式可能不同；要点是用 Node 启动 `mcp-server.mjs` 并传入配置绝对路径。客户端应列出五个工具：`wb_quantify`、`ihc_quantify`、`if_colocalize`、`pcr_preview`、`pcr_analyze`。`pcr_verify` 默认不开放；它会执行验证脚本，普通分析不需要。确需使用时，在配置中加入 `"verify": { "allowMcp": true, "dir": "<可信验证材料目录>" }`。
 
 计算在本机执行，但 AI 客户端可能向模型服务发送提示词、结果或附件；本桥接程序的路径检查不决定这些传输行为。
 

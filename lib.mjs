@@ -33,7 +33,9 @@ export function loadConfig(configPath) {
   const allowPaths = (cfg.allowPaths ?? [join(homedir(), "Downloads"), tmpdir(), "/tmp"]).map((value) => expandPath(value, base));
   const devPort = cfg.ihc?.devPort ?? 5173;
   if (!Number.isInteger(devPort) || devPort < 1 || devPort > 65535) throw new Error("ihc.devPort 必须是 1–65535 的整数 / Invalid port");
-  return { ...cfg, path, repos, allowPaths, ihc: { ...cfg.ihc, devPort } };
+  const verify = cfg.verify && typeof cfg.verify === "object" && typeof cfg.verify.dir === "string" && cfg.verify.dir.trim()
+    ? { ...cfg.verify, dir: expandPath(cfg.verify.dir, base) } : cfg.verify;
+  return { ...cfg, path, repos, allowPaths, ihc: { ...cfg.ihc, devPort }, ...(verify === undefined ? {} : { verify }) };
 }
 
 let cachedCfg = null;
@@ -157,7 +159,9 @@ export function runVerifyPcr(dir) {
   const repoPath = repo("pcr");
   const d = spawnSync(tsxBin(repoPath), [join(target, "dump_app.ts")], { cwd: repoPath, encoding: "utf8", timeout: 300_000 });
   if (d.status !== 0) throw new Error(`dump 失败：${(d.stderr || d.stdout || "").slice(-400)}`);
-  const c = spawnSync("python3", [join(target, "reference_check.py")], { encoding: "utf8", timeout: 600_000 });
+  // -I: isolated mode — ignore PYTHON* variables and user site-packages, and keep the
+  // script directory off sys.path so a planted json.py etc. cannot shadow the stdlib.
+  const c = spawnSync("python3", ["-I", join(target, "reference_check.py")], { cwd: target, encoding: "utf8", timeout: 600_000 });
   return { exitCode: c.status ?? 1, output: (c.stdout || "") + (c.stderr || "") };
 }
 

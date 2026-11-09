@@ -89,8 +89,10 @@ const pcrImportSchema = { type:"object",additionalProperties:false,properties:{
     properties:Object.fromEntries(["plate","well","sample","group","pairId","target","task","cq","quantity"].map(key=>[key,columnSelectorSchema]))},
 } };
 
-function toolsFor(engine) {
-return [
+export const DEFAULT_VERIFY_DIR = join(homedir(), "Downloads", "WispLab预印本验证", "pcr");
+
+function toolsFor(engine, { allowVerify = false } = {}) {
+const tools = [
   {
     name: "wb_quantify",
     description:
@@ -213,19 +215,18 @@ return [
     }},
     call: a => engine.previewPcr({files:a.files,importOptions:a.importOptions??{},runtime:a.runtime}),
   },
-  {
+];
+// pcr_verify executes local scripts, so it is opt-in and its directory comes only from
+// trusted configuration. A client-chosen directory let a prompt-injected model run
+// planted dump_app.ts / reference_check.py from Downloads or /tmp (the default allowPaths).
+if (allowVerify) tools.push({
     name: "pcr_verify",
     description:
-      "Execute the supplied external qPCR verification scripts. Historical 4-scenario materials compare a prior calculation contract; they do not validate the current independent-unit design and may require a matching archived engine revision. Script failures are returned, not converted into a validation claim.",
-    inputSchema: {
-      type: "object",
-      additionalProperties: false,
-      properties: { runtime: batchRuntimeSchema, dir: { type: "string", minLength: 1, description: "验证材料目录（默认 ~/Downloads/WispLab预印本验证/pcr）" } },
-    },
+      "Execute the qPCR verification scripts in the directory configured by the user (verify.dir). Historical 4-scenario materials compare a prior calculation contract; they do not validate the current independent-unit design and may require a matching archived engine revision. Script failures are returned, not converted into a validation claim.",
+    inputSchema: { type: "object", additionalProperties: false, properties: { runtime: batchRuntimeSchema } },
     call: (a) => engine.runVerifyPcr(a.dir, a.runtime),
-  },
-];
-
+  });
+return tools;
 }
 
 function textResult(value) {
@@ -250,7 +251,13 @@ export function createMcpHandler({ cfg, engine = lib, notify = () => {} }) {
     if (!statSync(path).isDirectory()) throw new Error(`allowPaths requires directories: ${path}`);
     return realpathSync(path);
   });
-  const tools = toolsFor(engine);
+  const verifyCfg = cfg.verify ?? {};
+  if (!isObject(verifyCfg)) throw new Error("verify must be an object");
+  if (verifyCfg.allowMcp !== undefined && typeof verifyCfg.allowMcp !== "boolean")
+    throw new Error("verify.allowMcp must be a boolean");
+  if (verifyCfg.dir !== undefined && (typeof verifyCfg.dir !== "string" || !verifyCfg.dir.trim()))
+    throw new Error("verify.dir must be a non-empty path");
+  const tools = toolsFor(engine, { allowVerify: verifyCfg.allowMcp === true });
   let legacyVersion = null;
 
   async function dispatch(tool, args, runtime) {
@@ -264,8 +271,12 @@ export function createMcpHandler({ cfg, engine = lib, notify = () => {} }) {
       if (input.biologicalDesign !== undefined) input.biologicalDesign = normalizeBiologicalDesign(input.biologicalDesign);
     }
     if (tool.name === "pcr_verify") {
-      input.dir = checkedPath(input.dir ?? join(homedir(), "Downloads", "WispLab预印本验证", "pcr"), roots, "directory");
-      for (const script of ["dump_app.ts", "reference_check.py"]) checkedPath(join(input.dir, script), roots);
+      const configured = expandPath(verifyCfg.dir ?? DEFAULT_VERIFY_DIR);
+      if (!existsSync(configured) || !statSync(configured).isDirectory())
+        throw new Error(`verify.dir is not a directory / 验证目录不存在：${configured}`);
+      input.dir = realpathSync(configured);
+      // Scripts must resolve inside the configured directory (no symlink escape).
+      for (const script of ["dump_app.ts", "reference_check.py"]) checkedPath(join(input.dir, script), [input.dir]);
     } else {
       input.files = input.files.map((path) => checkedPath(path, roots));
       if (input.controlTif !== undefined) input.controlTif = checkedPath(input.controlTif, roots);

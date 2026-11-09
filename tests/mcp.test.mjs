@@ -44,7 +44,7 @@ test('modern discovery advertises explicit versions and modern results', async (
   assert.deepEqual(result.supportedVersions, SUPPORTED_VERSIONS);
   assert.equal(result.resultType, 'complete');
   assert.equal(result._meta['io.modelcontextprotocol/serverInfo'].version, JSON.parse(readFileSync(join(root, 'package.json'))).version);
-  assert.equal((await handle(request('tools/list'))).result.tools.length, 6);
+  assert.equal((await handle(request('tools/list'))).result.tools.length, 5);
 });
 
 test('legacy negotiation never echoes an unsupported or modern version', async (t) => {
@@ -54,7 +54,7 @@ test('legacy negotiation never echoes an unsupported or modern version', async (
   }
   assert.equal((await handle(initialize('2024-11-05'))).result.protocolVersion, '2024-11-05');
   const listed = await handle({ jsonrpc: '2.0', id: 2, method: 'tools/list' });
-  assert.equal(listed.result.tools.length, 6);
+  assert.equal(listed.result.tools.length, 5);
   assert.equal(listed.result.resultType, undefined);
 });
 
@@ -132,24 +132,60 @@ test('tilde roots expand and allowed symlinks are passed as canonical paths', as
   assert.deepEqual(f.calls[0].files, [realpathSync(image)]);
 });
 
-test('pcr_verify checks its default directory and executable script targets', async (t) => {
-  const f = fixture(t); const handle = createMcpHandler(f);
-  const defaultResult = await handle(call('pcr_verify', {}));
-  assert.equal(defaultResult.result.isError, true);
+test('pcr_verify is not exposed over MCP unless verify.allowMcp is configured', async (t) => {
+  const f = fixture(t);
+  // Even with scripts planted inside allowPaths, the default server must not run them.
+  writeFileSync(join(f.allowed, 'dump_app.ts'), ''); writeFileSync(join(f.allowed, 'reference_check.py'), '');
+  const handle = createMcpHandler(f);
+  const names = (await handle(request('tools/list'))).result.tools.map((tool) => tool.name);
+  assert.equal(names.includes('pcr_verify'), false);
+  for (const args of [{}, { dir: f.allowed }]) {
+    assert.equal((await handle(call('pcr_verify', args))).error.code, -32602);
+  }
+  f.cfg.verify = { allowMcp: false, dir: f.allowed };
+  assert.equal((await createMcpHandler(f)(call('pcr_verify', {}))).error.code, -32602);
   assert.equal(f.calls.length, 0);
-  writeFileSync(join(f.allowed, 'dump_app.ts'), '');
-  symlinkSync(f.other, join(f.allowed, 'reference_check.py'));
-  const symlinkResult = await handle(call('pcr_verify', { dir: f.allowed }));
-  assert.equal(symlinkResult.result.isError, true);
-  assert.match(symlinkResult.result.content[0].text, /outside allowPaths/);
+});
+
+test('enabled pcr_verify runs only the configured directory and rejects a model-supplied dir', async (t) => {
+  const f = fixture(t);
+  const verifyDir = join(f.dir, 'verify'); mkdirSync(verifyDir);
+  writeFileSync(join(verifyDir, 'dump_app.ts'), ''); writeFileSync(join(verifyDir, 'reference_check.py'), '');
+  writeFileSync(join(f.allowed, 'dump_app.ts'), ''); writeFileSync(join(f.allowed, 'reference_check.py'), '');
+  f.cfg.verify = { allowMcp: true, dir: verifyDir };
+  const handle = createMcpHandler(f);
+  const listed = (await handle(request('tools/list'))).result.tools.find((tool) => tool.name === 'pcr_verify');
+  assert.equal(Object.hasOwn(listed.inputSchema.properties, 'dir'), false);
+  const injected = await handle(call('pcr_verify', { dir: f.allowed }));
+  assert.equal(injected.result.isError, true);
+  assert.match(injected.result.content[0].text, /unknown argument/);
   assert.equal(f.calls.length, 0);
+  const response = await handle(call('pcr_verify', {}));
+  assert.equal(response.result.isError, false);
+  assert.deepEqual(f.calls, [realpathSync(verifyDir)]);
+});
+
+test('enabled pcr_verify rejects scripts that resolve outside the configured directory', async (t) => {
+  const f = fixture(t);
+  const verifyDir = join(f.dir, 'verify'); mkdirSync(verifyDir);
+  writeFileSync(join(verifyDir, 'dump_app.ts'), '');
+  symlinkSync(f.other, join(verifyDir, 'reference_check.py'));
+  f.cfg.verify = { allowMcp: true, dir: verifyDir };
+  const response = await createMcpHandler(f)(call('pcr_verify', {}));
+  assert.equal(response.result.isError, true);
+  assert.match(response.result.content[0].text, /outside allowPaths/);
+  f.cfg.verify = { allowMcp: true, dir: join(f.dir, 'missing') };
+  assert.equal((await createMcpHandler(f)(call('pcr_verify', {}))).result.isError, true);
+  assert.equal(f.calls.length, 0);
+  assert.throws(() => createMcpHandler({ ...f, cfg: { ...f.cfg, verify: { allowMcp: 'yes' } } }), /allowMcp/);
 });
 
 test('failed verification sets isError even when the subprocess returns a result', async (t) => {
   const f = fixture(t);
   writeFileSync(join(f.allowed, 'dump_app.ts'), ''); writeFileSync(join(f.allowed, 'reference_check.py'), '');
+  f.cfg.verify = { allowMcp: true, dir: f.allowed };
   f.engine.runVerifyPcr = () => ({ exitCode: 1, output: 'verification failed' });
-  const response = await createMcpHandler(f)(call('pcr_verify', { dir: f.allowed }));
+  const response = await createMcpHandler(f)(call('pcr_verify', {}));
   assert.equal(response.result.isError, true);
   assert.equal(JSON.parse(response.result.content[0].text).exitCode, 1);
 });
