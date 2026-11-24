@@ -166,6 +166,92 @@ class DeployTests(unittest.TestCase):
         self.assertEqual((Path(result["backup"]) / "Caddyfile").read_bytes(), ORIGINAL)
         self.assertFalse((self.base / "pending.json").exists())
 
+    def test_official_router_templates_are_byte_exact(self):
+        # SHA256 of caddy_snippet(Path("/srv/wisplab")) at the original commits.
+        # Old: blot-workbench/fd867d89. Embedded: wisplab-cli/c8d98adc.
+        for embedded, digest in (
+            (False, "1123ac6140ab953eaf2db385d39f354a6388b2bca361d1260d751be964c988a8"),
+            (True, "e9515a37da9eba8336cbac43e30a2c688486adfa74cdc2703a030353bbe43bf4"),
+        ):
+            with self.subTest(embedded=embedded):
+                data = deploy.caddy_snippet(Path("/srv/wisplab"), embedded_blotlens=embedded)
+                self.assertEqual(hashlib.sha256(data).hexdigest(), digest)
+
+    def test_switch_router_from_verified_wb_inventory_and_restore(self):
+        # Both releases use web manifest schemaVersion 1. Version names carry no signal.
+        old = archive(self.root, "release-b", extra={"pcr/blotlens/index.html": b"other site"})
+        new = archive(self.root, "release-a", extra={"wb/blotlens/index.html": b"embedded"})
+        for package, embedded in ((new, True), (old, False), (new, True)):
+            with self.subTest(version=package[2]):
+                self.assertEqual(self.target.deploy(*package)["status"], "deployed")
+                self.assertEqual(self.target.current.resolve().name, package[2])
+                self.assertEqual(self.target.snippet.read_bytes(),
+                                 deploy.caddy_snippet(self.base, embedded_blotlens=embedded))
+                self.assertEqual(self.caddy.read_text().count(f"import {self.target.snippet}"), 1)
+                self.assertEqual(self.target.deploy(*package)["status"], "unchanged")
+
+    def test_failure_restores_exact_snippet_and_target_in_both_directions(self):
+        old = archive(self.root, "old")
+        new = archive(self.root, "new", extra={"wb/blotlens/index.html": b"embedded"})
+        self.target.deploy(*old)
+        self.target.snippet.chmod(0o640)
+        for starting, destination in ((old, new), (new, old)):
+            config = self.caddy.read_bytes()
+            snippet = self.target.snippet.read_bytes()
+            for fail_at in ("validation", "reload"):
+                with self.subTest(start=starting[2], fail_at=fail_at):
+                    self.runner.fail_candidate = fail_at == "validation"
+                    self.runner.reload_failures = int(fail_at == "reload")
+                    with self.assertRaisesRegex(deploy.DeployError, "target restored"):
+                        self.target.deploy(*destination)
+                    self.assertEqual(self.caddy.read_bytes(), config)
+                    self.assertEqual(self.target.current.resolve().name, starting[2])
+                    self.assertEqual(self.target.snippet.read_bytes(), snippet)
+                    self.assertEqual(self.target.snippet.stat().st_mode & 0o777, 0o640)
+                    self.assertFalse((self.base / "pending.json").exists())
+            self.target.deploy(*destination)
+            self.assertEqual(self.target.snippet.stat().st_mode & 0o777, 0o640)
+
+    def test_live_fragment_untouched_during_validation_and_concurrent_edit_preserved(self):
+        self.publish()
+        old = self.target.snippet.read_bytes()
+        edit = old + b"# operator edit\n"
+        new = archive(self.root, "new", extra={"wb/blotlens/index.html": b"embedded"})
+
+        def edit_during_validation(args, **kwargs):
+            if args[:2] == ["/usr/bin/caddy", "validate"] and "candidate" in args[3]:
+                self.assertEqual(self.target.snippet.read_bytes(), old)
+                self.assertIn(b"handle /blotlens/api/*", Path(args[3]).read_bytes())
+                self.target.snippet.write_bytes(edit)
+            return self.runner(args, **kwargs)
+
+        self.target.runner = edit_during_validation
+        with self.assertRaisesRegex(deploy.DeployError, "changed during preparation"):
+            self.target.deploy(*new)
+        self.assertEqual(self.target.current.resolve().name, "v1")
+        self.assertEqual(self.target.snippet.read_bytes(), edit)
+        with self.assertRaisesRegex(deploy.DeployError, "unknown content"):
+            self.target.deploy(*new)
+
+    def test_concurrent_edit_at_reload_retains_operator_file_and_recovery_journal(self):
+        self.publish()
+        new = archive(self.root, "new", extra={"wb/blotlens/index.html": b"embedded"})
+        changed = self.caddy.read_bytes() + b"# operator edit\n"
+
+        def edit_at_reload(args, **kwargs):
+            if args == ["systemctl", "reload", "caddy"]:
+                self.caddy.write_bytes(changed)
+            return self.runner(args, **kwargs)
+
+        self.target.runner = edit_at_reload
+        with self.assertRaisesRegex(deploy.DeployError, "rollback needs manual review"):
+            self.target.deploy(*new)
+        self.assertEqual(self.caddy.read_bytes(), changed)
+        journal = json.loads((self.base / "pending.json").read_bytes())
+        self.assertEqual(Path(journal["previous"]).name, "v1")
+        self.assertEqual((Path(journal["backup"]) / "wisplab.caddy").read_bytes(),
+                         deploy.caddy_snippet(self.base, embedded_blotlens=False))
+
     def test_repeating_same_release_is_idempotent(self):
         args = archive(self.root)
         self.target.deploy(*args)
