@@ -1,5 +1,7 @@
 # WispLab desktop / 桌面实验版
 
+单仓构建、预发布和恢复从 [WispLab 单仓发布手册](../deployment/wisplab/MONOREPO.md) 开始。下列分仓来源与发布命令用于历史版本。
+
 This is an **experimental, unsigned** offline desktop distribution. The renderer loads installed application files, never the live website. / 这是**未签名实验版**：应用读取安装包内的真实资源，启动与核心分析不依赖在线网站。
 
 Mac App Store 准备使用独立流程，见 [商店版交接 / MAS handoff](MAC_APP_STORE.md)：Xcode 账号、证书与 profile、沙箱迁移验收、TestFlight 和提审待办。当前状态（2026-10-22）：1.0.0 (build 1) 已上传并经 TestFlight 内测安装；账号删除等修复已进入签名 mas-dev 1.0.0 (build 2) 本机验收，商店包与提审仍待完成。 / The separate MAS handoff covers signing prerequisites and acceptance; it does not claim a signed or submission-ready release. Status 2026-10-22: 1.0.0 (build 1) is uploaded and installed through TestFlight internal testing; account-deletion fixes are in signed mas-dev 1.0.0 (build 2) local acceptance, while the store package and submission remain outstanding.

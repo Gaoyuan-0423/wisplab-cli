@@ -301,7 +301,7 @@ const ihc = () => png(320, 240, (x, y) => {
     clearTimeout(launchDiagnostic);
     clearTimeout(watchdog);
     if (app) {
-      const forceClose = setTimeout(() => app.process().kill('SIGTERM'), 10_000);
+      const forceClose = setTimeout(() => app.process().kill('SIGKILL'), 10_000);
       await app.close().catch(() => {});
       clearTimeout(forceClose);
     }

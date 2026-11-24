@@ -1,6 +1,6 @@
 # 已验证引擎 / Verified engines
 
-For a monorepo checkout, run `npm run setup` and `node cli.mjs doctor --strict`. Bundled modules are checked against their locked Git trees. Standalone engines are checked against their original locked commits. 更新仓内应用后，经回归验收，将应用改动暂存，以 `git write-tree --prefix=apps/wb/`（或对应子目录）取得新树哈希并同步更新锁。提交后复核严格诊断。下文为独立仓复现流程。
+For a monorepo checkout, run `npm run setup` and `node cli.mjs doctor --strict`. Bundled modules are checked against their locked Git trees. Bundled entries report the suite commit in `revision`, the pinned tree in `expectedTree` and `null` in `expectedRevision`. Standalone engines report their original locked commit in `expectedRevision`. 更新仓内应用后，经回归验收，将应用改动暂存，以 `git write-tree --prefix=apps/wb/`（或对应子目录）取得新树哈希并同步更新锁。提交后复核严格诊断。下文为独立仓复现流程。
 
 
 

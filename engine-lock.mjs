@@ -44,7 +44,7 @@ export function checkEngineRevision(path, lock) {
       if (bundled?.path !== scope.modulePath) throw new Error('Configured path does not match the locked bundled engine');
       const tree = git(['rev-parse', 'HEAD:' + scope.modulePath]);
       const matchesLock = tree === bundled.tree;
-      return { revision, upstreamRevision: bundled.upstreamRevision, modulePath: scope.modulePath, tree,
+      return { revision, expectedRevision: null, upstreamRevision: bundled.upstreamRevision, modulePath: scope.modulePath, tree,
         expectedTree: bundled.tree, matchesLock, dirty, verified: matchesLock && !dirty };
     }
     return { revision, expectedRevision, matchesLock: revision === expectedRevision, dirty,

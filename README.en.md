@@ -55,7 +55,7 @@ For reproducibility with external engine checkouts, see [verified engines](docs/
 
 `--strip y,h,x0,x1` uses original image pixels: `h` is the height and `x1` the right boundary. Include background margins and exclude markers, labels, and other panels. For WB, `--control` is a lane number starting at 1; for qPCR, it is a comma-separated list of sample names. Per-file analysis errors set CLI exit code 1 or MCP `isError: true`, while retaining JSON results. Inspect `warnings` even after successful execution.
 
-[Monorepo numerical regression results](docs/migration-regression.md)
+[Monorepo numerical regression results](docs/migration-regression.md) · [Migration sources and project compatibility](docs/monorepo-migration.md)
 
 ## Open a workbench
 

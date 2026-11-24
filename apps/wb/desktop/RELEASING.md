@@ -1,5 +1,7 @@
 # Desktop release / 桌面发布
 
+单仓构建、预发布和恢复从 [WispLab 单仓发布手册](../deployment/wisplab/MONOREPO.md) 开始。下列分仓来源与发布命令用于历史版本。
+
 桌面发布使用同一套仓库源码，但安装包需要独立构建。网页仍通过
 `deployment/wisplab/release.py` 更新 GitHub Pages 与自有域名；桌面 Release
 不会改变网站或账号服务器。所有命令均在 WB 正式源码目录执行：

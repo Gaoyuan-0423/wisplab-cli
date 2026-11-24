@@ -32,6 +32,8 @@ test('bundled verification and provenance isolate each engine from the CLI and s
   assert.equal(verified.verified, true);
   assert.equal(verified.tree, tree);
   assert.equal(verified.revision, revision);
+  assert.equal(verified.expectedRevision, null);
+  assert.equal(verified.expectedTree, tree);
   assert.equal(checkEngineRevision(sibling, lock).verified, false);
   assert.equal(checkEngineRevision(engine, { ...lock, bundled: { ...lock.bundled, tree: '0'.repeat(40) } }).verified, false);
   const spec = { analysis: 'wb', engineDir: engine, bridgeDir: root, parameters: {}, inputs: [] };
