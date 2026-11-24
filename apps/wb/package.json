@@ -5,6 +5,10 @@
   "type": "module",
   "license": "MIT",
   "scripts": {
+    "build:blotlens": "npm --prefix ../blotlens run build -- --outDir ../wb/public/blotlens --emptyOutDir",
+    "predev": "npm run build:blotlens",
+    "prebuild": "npm run build:blotlens",
+    "prelocal": "npm run build:blotlens",
     "dev": "vite --host 127.0.0.1",
     "build": "tsc -b && vite build",
     "preview": "vite preview --host 127.0.0.1",

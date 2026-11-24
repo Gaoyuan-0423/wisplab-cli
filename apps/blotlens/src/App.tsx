@@ -171,7 +171,7 @@ export default function App() {
     epoch = useRef(0),
     abort = useRef<AbortController | null>(null);
   useEffect(() => {
-    api<Config>("/api/config")
+    api<Config>("./api/config")
       .then((value) => {
         let restored = value;
         try {
@@ -240,6 +240,11 @@ export default function App() {
         event.source !== window.parent
       )
         return;
+      if (event.data?.type === "blotlens:language" && event.data.version === 1 &&
+          (event.data.language === "zh" || event.data.language === "en")) {
+        setLanguage(event.data.language);
+        return;
+      }
       const request = parseHostImport(event.data);
       if (!request) return;
       const ok = await loadFile(
@@ -678,7 +683,7 @@ export default function App() {
         useRegion ? session.panel : undefined,
       );
       if (id !== epoch.current) return;
-      const result = await api<RecognitionResult>("/api/recognize", {
+      const result = await api<RecognitionResult>("./api/recognize", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -2392,7 +2397,7 @@ function SettingsModal({
     try {
       const next = hostedConfig();
       if (!next.apiKey) throw new Error(message("请先输入 API Key。"));
-      const result = await api<{ message: string }>("/api/check", {
+      const result = await api<{ message: string }>("./api/check", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -2435,7 +2440,7 @@ function SettingsModal({
         setKey("");
         return;
       }
-      const result = await api<Config>("/api/config", {
+      const result = await api<Config>("./api/config", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),

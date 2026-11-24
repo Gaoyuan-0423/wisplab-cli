@@ -4,17 +4,17 @@
 
 独立的本机网页工具：粘贴论文截图，由用户配置的视觉 API 提供条带和标签候选，本地程序按截图像素测量、扣背景、按内参与对照归一化，再生成可编辑、可复查的柱状图。
 
-本应用是独立的 [BlotLens 项目](https://github.com/Gaoyuan-0423/blotlens)，可以单独安装、运行和发布。[WB 工作台](https://github.com/Gaoyuan-0423/blot-workbench) 引用固定版本的同一份代码，提供页面内的截图核对流程。它支持真实 PNG/JPEG 截图；输出是截图灰度估计，不生成统计检验或自动判定论文结论。
+BlotLens 可单独运行和发布。WispLab 的 [WB 工作台](../wb) 从本目录构建同源内嵌界面，支持将原始截图传入核对工作区。[嵌入说明](docs/embedding.md)。它支持真实 PNG/JPEG 截图；输出是截图灰度估计，不生成统计检验或自动判定论文结论。
 
 ![合成示例：原图取样与柱状图并排查看](docs/screenshots/workspace.png)
 
 ## 启动
 
-在 BlotLens 仓库根目录使用 Node.js 22.12 或更新的兼容版本：
+使用 Node.js 22.12 或更新的兼容版本：
 
 ```sh
-git clone https://github.com/Gaoyuan-0423/blotlens.git
-cd blotlens
+git clone https://github.com/Gaoyuan-0423/wisplab-cli.git
+cd wisplab-cli/apps/blotlens
 npm ci
 npm run dev
 ```

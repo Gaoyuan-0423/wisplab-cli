@@ -48,7 +48,7 @@ Charts and PNG/SVG exports use the selected interface language. CSV column ident
 
 ## Run locally
 
-Requires Node.js **22.12 or newer**.
+From the WispLab repository root, enter `apps/blotlens`. Requires Node.js **22.12 or newer**.
 
 ```sh
 npm ci
@@ -100,7 +100,7 @@ The supplied example figures are workflow checks, not quantitative ground truth.
 
 ## WB Workbench integration
 
-BlotLens remains an independent project. The WB Workbench can embed a pinned version and transfer a screenshot using the versioned same-origin host protocol. Receiving an image does not automatically invoke an AI service. See the [integration documentation](docs) and [Chinese project guide](README.zh-CN.md) for additional methods and validation material.
+The WB Workbench builds this application from the same repository and can transfer an original screenshot to the embedded review. The transfer uses a versioned same-origin protocol. Review and export work offline, and model recognition requires an explicit user action. See the [integration documentation](docs/embedding.md) and [Chinese project guide](README.zh-CN.md) for additional methods and validation material.
 
 ## License
 

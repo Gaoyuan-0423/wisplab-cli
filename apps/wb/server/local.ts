@@ -17,6 +17,7 @@ import {
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createVisionApi, hasTrustedHost } from "./api";
 import { createAnalyzeApi } from "./analyze-api";
+import { createReviewerHandler } from "../../blotlens/server/app";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const types: Record<string, string> = {
@@ -83,7 +84,7 @@ export async function serveStatic(
       status(response, 404);
       return;
     }
-    const requested = pathname === "/" ? "/index.html" : pathname;
+    const requested = pathname.endsWith("/") ? pathname + "index.html" : pathname;
     const contentType = types[extname(requested).toLowerCase()];
     if (!contentType) {
       status(response, 404);
@@ -139,11 +140,17 @@ export async function startLocalServer({
   const origin = `http://127.0.0.1:${port}`;
   const api = createVisionApi({ origin });
   const analyzeApi = createAnalyzeApi({ origin });
+  const reviewer = createReviewerHandler();
   let dev:
     Awaited<ReturnType<(typeof import("vite"))["createServer"]>> | undefined;
   const server = createServer((request, response) => {
     if (!hasTrustedHost(request, origin)) {
       status(response, 403);
+      return;
+    }
+    if (request.url?.startsWith("/blotlens/api/")) {
+      request.url = request.url.slice("/blotlens".length);
+      reviewer.handle(request, response);
       return;
     }
     if ((request.url ?? "").startsWith("/api")) {
@@ -190,6 +197,7 @@ export async function startLocalServer({
     });
   } catch (error) {
     api.close();
+    reviewer.close();
     await dev?.close();
     throw error;
   }
@@ -198,6 +206,7 @@ export async function startLocalServer({
     origin,
     close: async () => {
       api.close();
+      reviewer.close();
       await dev?.close();
       server.closeAllConnections();
       await new Promise<void>((resolveClosed, reject) =>

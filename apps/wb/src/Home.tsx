@@ -40,6 +40,16 @@ const cards = [
     enCta: "Open advanced workspace",
   },
   {
+    href: "#blotlens",
+    icon: ScanLine,
+    zhTitle: "截图趋势核对 · BlotLens",
+    enTitle: "Screenshot trend review · BlotLens",
+    zhText: "导入论文截图，手动选择条带或用视觉模型辅助定位，核对像素测量结果并导出。",
+    enText: "Import a figure screenshot, select bands manually or with AI assistance, and export the measured trends.",
+    zhCta: "打开截图核对",
+    enCta: "Review a screenshot",
+  },
+  {
     href: "#demo",
     icon: FlaskConical,
     zhTitle: "合成示例演示",

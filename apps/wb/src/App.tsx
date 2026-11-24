@@ -521,6 +521,10 @@ function App() {
             <span>{t("单条带识别", "Single-strip recognition")}</span>
             <ArrowRight size={14} />
           </a>
+          <a className="nav-item" href={languageUrl("#blotlens")}>
+            <ScanLine size={17} />
+            <span>{t("截图趋势核对", "Screenshot trend review")}</span>
+          </a>
           <a className="nav-item" href={languageUrl("#real")}>
             <FileImage size={18} />
             <span>{t("真实图像分析", "Analyze real images")}</span>

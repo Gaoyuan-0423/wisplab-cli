@@ -4,7 +4,7 @@
 
 ## 唯一源码目录
 
-本仓库的正式编辑目录是 **`~/.codex/worktrees/wb-ui-release/WB分析`**。分支随工作推进变化（2026-10-22 为 `codex/wb-mas-distribution`），以 `git branch --show-current` 为准，不要为匹配本文档的旧分支名切分支或重置。`~/Downloads/WB分析` 是受保护的 main checkout，`~/.codex/worktrees/fbae/` 存放交接文档与软著资料——都不要当作开发目录，也不要互相覆盖。
+统一仓库的 WB 源码位于 `apps/wb/`。请在当前 wisplab-cli 工作区修改并测试。独立仓的旧工作目录用于查阅历史改动。
 
 ## 结构
 

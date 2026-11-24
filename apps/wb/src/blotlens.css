@@ -1,0 +1,8 @@
+.blotlens-workflow { max-width: 1600px; margin: 0 auto; padding: 16px clamp(12px, 2vw, 36px); }
+.blotlens-workflow header, .blotlens-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.blotlens-workflow header a { display: inline-flex; align-items: center; gap: 6px; color: #315b66; }
+.blotlens-heading { margin-top: 12px; }
+.blotlens-heading h1 { margin: 0; font-size: clamp(1.35rem, 3vw, 2rem); }
+.blotlens-heading small { font-size: .65em; font-weight: 500; }
+.blotlens-workflow p { font-size: .9rem; margin: 10px 0; }
+.blotlens-workflow iframe { display: block; width: 100%; height: 80vh; min-height: 420px; border: 1px solid #cfdbde; border-radius: 8px; background: white; }

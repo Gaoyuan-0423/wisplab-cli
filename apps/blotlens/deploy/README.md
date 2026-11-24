@@ -58,3 +58,14 @@ Caddy 自动获取和续期 HTTPS 证书；HTTP 自动跳转 HTTPS，www 跳转�
 - `systemctl status blotlens caddy` 检查服务；`journalctl -u blotlens -u caddy` 只看运行状态，严禁增设正文/密钥日志。
 - 定期更新 Node、Ubuntu/Caddy 安全修复及应用依赖，并检查证书续期和磁盘占用。
 - 试运行不保存用户分析文件，无数据库。用户自行导出备份；自动部署不会把本机已有截图或 API Key 上传服务器。
+
+## WB 内嵌服务 / Embedded WB service
+
+WB 的静态产物含同源页面 `/blotlens/index.html`。托管识别使用独立的 `blotlens-wb.service`：
+在 WB 服务主机安装同一版本的发布包于 `/opt/blotlens/current`、Node 于 `/opt/blotlens-node`，同该目录内的独立版 systemd 配置；
+将 `deploy/blotlens-wb.service` 安装至 systemd 后启动。实例仅监听 `127.0.0.1:4319`，公开来源固定为 `https://wb.wisplab.top`。
+WB 的 Caddy 将 `/blotlens/api/*` 去掉 `/blotlens` 前缀后交给此实例，保留原始 Host 和 Origin，覆盖 X-Real-IP 为客户端地址。
+独立版继续使用 `https://blotlens.top/api/*` 和端口 4317。两个实例各有自己的限流与供应商配置，可用 `/etc/blotlens-wb.env` 给 WB 实例设置 `BLOTLENS_PROVIDERS`。
+更新或回滚时两个实例分别使用经校验的发布包并重启，再检查两边的 config 接口均返回 `hosted: true`。用户密钥不进入部署配置。
+
+The WB artifact includes a same-origin page. Deploy the release bundle and the separate `blotlens-wb.service` on the WB host. This instance uses the WB public origin and private port 4319. Proxy only the embedded API prefix, strip `/blotlens`, preserve Host and Origin, and set X-Real-IP to the client address. The standalone origin retains its own service on 4317. Check both config endpoints after a release or rollback. Static previews and the offline desktop support manual measurement and JSON import/export.

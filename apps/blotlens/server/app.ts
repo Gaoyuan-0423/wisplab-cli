@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type RequestListener, type ServerResponse } from 'node:http';
-import { isIP, type AddressInfo } from 'node:net';
+import { isIP } from 'node:net';
 import { parseDetectionResponse, PROMPT_VERSION, RECOGNITION_PROMPT } from '../shared/detection';
 import { validateImageInput } from './image';
 import type { RecognitionResult } from '../src/core/types';
@@ -106,7 +106,7 @@ function publicProvider(value: unknown, allowed: string[]): ProviderSettings {
 }
 
 /** Local settings remain in memory; hosted credentials exist only within each request. */
-export function createReviewerServer(options: ServerOptions = {}) {
+export function createReviewerHandler(options: ServerOptions = {}) {
   const hosted = options.publicOrigin !== undefined;
   const publicUrl = hosted ? new URL(options.publicOrigin!) : null;
   if (publicUrl && (publicUrl.protocol !== 'https:' || publicUrl.origin !== options.publicOrigin)) throw new Error('Public origin must be an exact HTTPS origin');
@@ -125,9 +125,8 @@ export function createReviewerServer(options: ServerOptions = {}) {
   const maxResponseBytes = options.maxResponseBytes ?? 2 * 1024 * 1024;
   const active = new Set<AbortController>();
   const publicSettings = () => hosted ? { baseUrl: allowed[0], model: '', keyConfigured: false, hosted: true, allowedProviderUrls: allowed } : { baseUrl: settings.baseUrl, model: settings.model, keyConfigured: settings.apiKey.length > 0 };
-  const server = createServer(async (request, response) => {
-    const address = server.address() as AddressInfo | null;
-    const authority = publicUrl?.host ?? `127.0.0.1:${address?.port}`;
+  const handle: RequestListener = async (request, response) => {
+    const authority = publicUrl?.host ?? `127.0.0.1:${request.socket.localPort}`;
     const origin = publicUrl?.origin ?? `http://${authority}`;
     // Enforce Host on every resource to prevent DNS rebinding into the local UI/API.
     if (request.headers.host !== authority) { send(response, 403, { error: { code: 'host_forbidden', message: '访问地址不匹配，请使用配置的站点地址' } }); return; }
@@ -251,10 +250,20 @@ export function createReviewerServer(options: ServerOptions = {}) {
       const failure = error instanceof HttpError ? error : new HttpError(500, 'internal_error', '服务处理失败，请重试');
       send(response, failure.status, { error: { code: failure.code, message: failure.message } });
     } finally { release?.(); }
-  });
+  };
+  function close() {
+    for (const controller of active) controller.abort();
+    settings = { baseUrl: '', model: '', apiKey: '' };
+  }
+  return { handle, close };
+}
+
+export function createReviewerServer(options: ServerOptions = {}) {
+  const { handle, close } = createReviewerHandler(options);
+  const server = createServer(handle);
   server.requestTimeout = 30_000;
   server.headersTimeout = 15_000;
   server.keepAliveTimeout = 5_000;
-  server.on('close', () => { for (const controller of active) controller.abort(); settings = { baseUrl: '', model: '', apiKey: '' }; });
+  server.on('close', close);
   return server;
 }
