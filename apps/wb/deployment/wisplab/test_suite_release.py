@@ -45,25 +45,50 @@ class SuiteTests(unittest.TestCase):
 
     def test_origin_export_window_and_redirect(self):
         cutover = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        csp = """<meta http-equiv="Content-Security-Policy" content="script-src 'self'">"""
+        frozen = f"<html><head>{csp}</head><body><main>saved</main></body></html>"
+
         def unpack(archive, sha, version, destination):
-            (destination / "wb").mkdir()
-            (destination / "wb/index.html").write_text("<html><head></head><body><main>saved</main></body></html>")
+            for site in suite.WEB_APPS:
+                (destination / site).mkdir()
+                (destination / site / "index.html").write_text(frozen)
+                (destination / site / "app.js").write_bytes(b"original")
+
         with tempfile.TemporaryDirectory() as temp, \
                 patch.object(legacy_pages, "load_release", return_value=({"schemaVersion": 1, "version": "v1",
                     "archive": {"sha256": "a" * 64}}, Path("test.tar.gz"), {})), \
                 patch.object(deploy, "read_archive", side_effect=unpack):
             root = Path(temp).resolve()
-            for days, expected in ((-1, "frozen"), (0, "export-window"), (29, "export-window"), (30, "redirect")):
-                out = root / str(days)
-                result = legacy_pages.build("wb", root, cutover, out, cutover + timedelta(days=days))
-                self.assertEqual(result["mode"], expected)
-                html = (out / "index.html").read_text()
-                self.assertEqual("<main>saved" in html, days < 30)
-                if days >= 0:
-                    self.assertIn("location.search+location.hash", html)
-                    self.assertIn("https://wb.wisplab.top/", html)
-                if days == 30:
-                    self.assertEqual(html, (out / "404.html").read_text())
+            for site, project in legacy_pages.PROJECTS.items():
+                for days, mode in ((-1, "frozen"), (0, "export-window"), (29, "export-window"), (30, "redirect")):
+                    with self.subTest(site=site, days=days):
+                        out = root / site / str(days)
+                        result = legacy_pages.build(site, root, cutover, out, cutover + timedelta(days=days))
+                        self.assertEqual(result["mode"], mode)
+                        index = (out / "index.html").read_text()
+                        if days < 30:
+                            self.assertIn(csp, index)
+                            self.assertIn("<main>saved", index)
+                            self.assertEqual((out / "app.js").read_bytes(), b"original")
+                        if days < 0:
+                            self.assertEqual(index, frozen)
+                            self.assertEqual({f.name for f in out.iterdir()}, {"index.html", "app.js"})
+                            continue
+
+                        # The same absolute project URL works for 404s at any nesting depth.
+                        missing = (out / "404.html").read_text()
+                        tag = f'<script src="/{project}/legacy-redirect.js" data-target="https://{site}.wisplab.top/"'
+                        for html in (index, missing):
+                            self.assertIn(tag, html)
+                            self.assertNotIn("location.replace(", html)
+                            self.assertEqual("data-deadline=" in html, days < 30)
+                        self.assertEqual((out / "legacy-redirect.js").read_bytes(), legacy_pages.REDIRECT_SCRIPT.read_bytes())
+                        if days < 30:
+                            self.assertIn(f'href="/{project}/"', missing)
+                            self.assertIn('data-deadline="1769817600000"', index)
+                        else:
+                            self.assertEqual(index, missing)
+                            self.assertFalse((out / "app.js").exists())
 
     @unittest.skipUnless(shutil.which("caddy"), "Set PATH to a Caddy binary for the HTTP rehearsal")
     def test_real_caddy_preserves_origin_and_api_path(self):
