@@ -38,6 +38,15 @@ function createWindow() {
     if (isAppUrl(url)) return;
     event.preventDefault(); void openExternalConfirmed(url);
   });
+  window.webContents.on('will-prevent-unload', event => {
+    const stay = text('留在此页', 'Stay');
+    const leave = text('离开', 'Leave');
+    const choice = dialog.showMessageBoxSync(window, {
+      type: 'question', message: text('离开前请确认已导出需要保留的分析。', 'Export any analysis you want to keep before leaving.'),
+      buttons: [stay, leave], defaultId: 0, cancelId: 0,
+    });
+    if (choice === 1) event.preventDefault();
+  });
   window.webContents.on('will-redirect', (event, url) => { if (!isAppUrl(url)) event.preventDefault(); });
   window.webContents.on('will-attach-webview', event => event.preventDefault());
   window.webContents.setWindowOpenHandler(({ url }) => {

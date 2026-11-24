@@ -24,6 +24,7 @@ DEPLOY = ROOT / 'deployment' / 'wisplab'
 sys.path.insert(0, str(DEPLOY))
 import artifact_download
 import release
+import suite_release
 spec = importlib.util.spec_from_file_location('desktop_packager_validation', DEPLOY / 'package-release.py')
 validation = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(validation)
@@ -72,9 +73,10 @@ def stage_local(args, apps):
         if args.build:
             subprocess.run(['npm.cmd' if sys.platform == 'win32' else 'npm', 'run', 'build'], cwd=root, check=True)
         files = put_files(root / 'dist', apps / name, site=name)
-        sources[name] = {'repository': REPOS[name], 'gitSha': sha, 'dirty': dirty,
+        in_suite = root == (ROOT.parent / name).resolve()
+        sources[name] = {'repository': suite_release.REPOSITORY if in_suite else REPOS[name], 'gitSha': sha, 'dirty': dirty,
                          'buildOrigin': 'local-development', 'builtBeforeStaging': args.build, 'files': files}
-    sources['portal'] = {'repository': REPOS['wb'], 'gitSha': sources['wb']['gitSha'],
+    sources['portal'] = {'repository': sources['wb']['repository'], 'gitSha': sources['wb']['gitSha'],
                          'dirty': sources['wb']['dirty'], 'buildOrigin': 'local-development',
                          'files': put_files(paths['wb'] / 'deployment/wisplab/portal', apps / 'portal', portal=True)}
     return sources
@@ -82,6 +84,21 @@ def stage_local(args, apps):
 
 def stage_ci(args, apps, staging):
     sources = {}
+    sha = getattr(args, "sha", None)
+    if sha:
+        run, records = suite_release.app_artifacts(sha)
+        for site in suite_release.WEB_APPS:
+            item = records[f"web-dist-{site}"]
+            extracted = staging / item["name"]
+            artifact_download.download_artifact(suite_release.REPOSITORY, item, extracted, required_file="index.html")
+            sources[site] = {"repository": suite_release.REPOSITORY, "gitSha": sha, "dirty": False,
+                             "buildOrigin": "successful-ci-artifact", "ci": suite_release.ci_record(run, item),
+                             "files": put_files(extracted, apps / site, site=site)}
+        portal = staging / "portal-source"
+        suite_release.source_portal(sha, portal)
+        sources["portal"] = {"repository": suite_release.REPOSITORY, "gitSha": sha, "dirty": False,
+                             "buildOrigin": "pinned-source", "files": put_files(portal, apps / "portal", portal=True)}
+        return sources
     for name, repository in REPOS.items():
         sha = getattr(args, name + '_sha')
         run, artifact = release.get_ci(repository, sha, args.ci_wait)
@@ -115,15 +132,20 @@ def main():
     sub = parser.add_subparsers(dest='mode', required=True)
     local = sub.add_parser('local', help='Combine local built dist directories for offline development.')
     local.add_argument('--wb', type=Path, default=ROOT)
-    local.add_argument('--pathology', type=Path, required=True)
-    local.add_argument('--pcr', type=Path, required=True)
+    local.add_argument('--pathology', type=Path, default=ROOT.parent / 'pathology')
+    local.add_argument('--pcr', type=Path, default=ROOT.parent / 'pcr')
     local.add_argument('--build', action='store_true', help='Build each existing checkout before staging.')
     local.add_argument('--allow-dirty', action='store_true', help='Explicitly label uncommitted builds as development only.')
     ci = sub.add_parser('ci', help='Download exact fully successful CI artifacts; no mutable latest lookup.')
+    ci.add_argument('--sha', type=full_sha, help='Single monorepo main SHA')
     for name in REPOS:
-        ci.add_argument('--' + name + '-sha', type=full_sha, required=True)
+        ci.add_argument('--' + name + '-sha', type=full_sha, help='Historical three-repository staging only')
     ci.add_argument('--ci-wait', type=int, default=600)
     args = parser.parse_args()
+    if args.mode == 'ci':
+        legacy = [getattr(args, name + '_sha') for name in REPOS]
+        if (args.sha and any(legacy)) or (not args.sha and not all(legacy)):
+            parser.error('Choose --sha or the three historical source SHAs')
     destination = DESKTOP / 'resources'
     with tempfile.TemporaryDirectory(prefix='wisplab-desktop-stage-') as tmp:
         # macOS exposes its temporary directory through /var -> /private/var.

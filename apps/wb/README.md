@@ -81,14 +81,14 @@ Arbitrary instrument formats, reliable unattended analysis, technical-replicate 
 
 ## 本地运行与开发 / Local use and development
 
-以下 API 与新教程启动步骤仅适用于开发分支。Windows 与 macOS 使用相同命令，需要 Git 和 Node.js 22.12 或更新的兼容版本；在已经克隆的仓库目录中，先切换到开发分支再启动：
+在 WispLab 仓库根目录运行以下命令。WB 与内嵌的 BlotLens 使用各自的锁文件安装依赖，需要 Node.js 22.12 或更高版本。
 
-These API and new-guide instructions apply only to the development branch. Windows and macOS use the same commands. With Git and Node.js 22.12 or a newer compatible version, switch branches in your cloned repository before starting:
+From the WispLab repository root, install both WB and BlotLens dependencies with Node.js 22.12 or later.
 
 ```sh
-git fetch origin
-git switch codex/configurable-vision-api
+cd apps/wb
 npm ci
+npm --prefix ../blotlens ci
 npm run local
 ```
 

@@ -175,6 +175,27 @@ const ihc = () => png(320, 240, (x, y) => {
       assert.equal(size, item.receivedBytes); assert.equal(size, item.totalBytes);
       return item.target;
     };
+    report.phase = 'embedded screenshot review';
+    await page.locator('a[href^="app://wisplab/wb/"]').filter({ hasText: /WB 条带分析/ }).first().click();
+    await page.locator('a[href*="#blotlens"]').first().click();
+    await expect(page).toHaveURL(/app:\/\/wisplab\/wb\/.*#blotlens/);
+    const review = page.frameLocator('iframe[src="./blotlens/index.html"]');
+    await review.getByRole('button', { name: '先试试合成示例' }).click();
+    await review.getByRole('button', { name: '导出', exact: true }).click();
+    const csvPath = await exported(review.getByRole('button', { name: '测量明细 CSV' }));
+    const reviewCsv = await fs.readFile(csvPath, 'utf8');
+    assert.match(reviewCsv, /normalized_signal,relative_to_control/);
+    assert.ok(reviewCsv.trim().split(/\r?\n/).length > 2);
+    assert.deepEqual(report.remoteRequests, []);
+    report.checks.push('WB embedded BlotLens synthetic measurement and CSV export offline');
+    // Rehearse the user's explicit Leave choice after saving the fixture.
+    await app.evaluate(({ dialog }) => {
+      const original = dialog.showMessageBoxSync;
+      dialog.showMessageBoxSync = (...args) => {
+        dialog.showMessageBoxSync = original;
+        return 1;
+      };
+    });
     await page.evaluate(() => { window.open('app://wisplab/wb/?mode=single&lang=zh'); });
     await page.waitForURL('app://wisplab/wb/?mode=single&lang=zh');
     assert.equal(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length), 1);

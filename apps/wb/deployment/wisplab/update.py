@@ -28,6 +28,7 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 import uuid
 
 REPOSITORY = "Gaoyuan-0423/blot-workbench"
+SUITE_REPO = "Gaoyuan-0423/wisplab-cli"
 API = f"https://api.github.com/repos/{REPOSITORY}"
 PREFIX = "wisplab-deploy-"
 SOURCE_REPOS = {"wb": REPOSITORY, "pathology": "Gaoyuan-0423/pathology-workbench", "pcr": "Gaoyuan-0423/pcr-workbench"}
@@ -76,7 +77,8 @@ class SafeRedirect(HTTPRedirectHandler):
 
 
 class GitHub:
-    def __init__(self):
+    def __init__(self, repository=REPOSITORY):
+        self.api = f"https://api.github.com/repos/{repository}"
         self.opener = build_opener(SafeRedirect())
 
     def open(self, url):
@@ -100,7 +102,7 @@ class GitHub:
     def releases(self):
         result = []
         for page in range(1, 11):
-            entries = self.get_json(f"{API}/releases?per_page=100&page={page}")
+            entries = self.get_json(f"{self.api}/releases?per_page=100&page={page}")
             if not isinstance(entries, list):
                 raise UpdateError("Unexpected release listing")
             result.extend(entries)
@@ -109,7 +111,7 @@ class GitHub:
         raise UpdateError("Release listing exceeded 1000 entries; review pagination before continuing")
 
     def release_by_tag(self, tag):
-        return self.get_json(f"{API}/releases/tags/{quote(tag, safe='')}")
+        return self.get_json(f"{self.api}/releases/tags/{quote(tag, safe='')}")
 
     def download(self, url, destination, expected_size, limit):
         if not isinstance(expected_size, int) or not 0 < expected_size <= limit:
@@ -153,7 +155,7 @@ def latest_release(releases):
         datetime.fromisoformat(release["published_at"].replace("Z", "+00:00")), release["id"]))
 
 
-def asset(release, name):
+def asset(release, name, repository=REPOSITORY):
     matches = [item for item in release.get("assets", []) if item.get("name") == name]
     if len(matches) != 1 or matches[0].get("state") != "uploaded":
         raise UpdateError(f"Published release needs exactly one uploaded {name} asset")
@@ -161,14 +163,16 @@ def asset(release, name):
     url = entry.get("browser_download_url", "")
     check_https(url)
     parsed = urlparse(url)
-    expected = f"/{REPOSITORY}/releases/download/{release['tag_name']}/{name}"
+    expected = f"/{repository}/releases/download/{release['tag_name']}/{name}"
     if parsed.hostname != "github.com" or unquote(parsed.path).casefold() != expected.casefold() or parsed.query or parsed.fragment:
         raise UpdateError("Asset download URL does not belong to the selected repository and release")
     return entry
 
 
-def validate_manifest(document):
-    if (not isinstance(document, dict) or document.get("schemaVersion") != 1
+def validate_manifest(document, repository=REPOSITORY):
+    monorepo = repository == SUITE_REPO
+    schema = 2 if monorepo else 1
+    if (not isinstance(document, dict) or document.get("schemaVersion") != schema
             or not VERSION_RE.fullmatch(str(document.get("version", "")))):
         raise UpdateError("Invalid deployment manifest schema or version")
     archive = document.get("archive")
@@ -178,18 +182,38 @@ def validate_manifest(document):
     sources = document.get("sources")
     if not isinstance(sources, dict) or set(sources) != set(SOURCE_REPOS):
         raise UpdateError("Manifest must identify all three source repositories")
-    for site, expected_repo in SOURCE_REPOS.items():
+    for site, legacy_repo in SOURCE_REPOS.items():
+        expected_repo = SUITE_REPO if monorepo else legacy_repo
         source = sources[site]
         if (not isinstance(source, dict) or source.get("repository", "").casefold() != expected_repo.casefold()
                 or not SHA_RE.fullmatch(str(source.get("gitSha", "")))):
             raise UpdateError(f"Unexpected source repository or Git SHA for {site}")
-        for step in ("ci", "pages"):
+        if monorepo:
+            evidence = source.get("ci", {})
+            if (not isinstance(evidence, dict) or evidence.get("artifactName") != f"web-dist-{site}"
+                    or type(evidence.get("artifactId")) is not int or evidence["artifactId"] <= 0
+                    or not re.fullmatch(r"sha256:[0-9a-f]{64}", str(evidence.get("artifactDigest", "")))):
+                raise UpdateError(f"Invalid monorepo artifact identity for {site}")
+        for step in (("ci",) if monorepo else ("ci", "pages")):
             evidence = source.get(step)
             if (not isinstance(evidence, dict) or evidence.get("conclusion") != "success"
                     or evidence.get("headSha") != source["gitSha"]
                     or not isinstance(evidence.get("runId"), int) or evidence["runId"] <= 0
                     or ("commitInput" in evidence and evidence["commitInput"] != source["gitSha"])):
                 raise UpdateError(f"Missing successful {step} evidence for {site} at its exact Git SHA")
+    if monorepo and len({(s["gitSha"], s["ci"]["runId"]) for s in sources.values()}) != 1:
+        raise UpdateError("All web apps must share a single successful CI run and source SHA")
+    if monorepo:
+        ci = sources["wb"]["ci"]
+        service = document.get("blotlens") or {}
+        service_ci = service.get("ci") or {}
+        if (service.get("repository") != SUITE_REPO or service.get("gitSha") != sources["wb"]["gitSha"]
+                or not SHA256_RE.fullmatch(str(service.get("sha256", "")))
+                or service_ci.get("artifactName") != "blotlens-linux" or service_ci.get("runId") != ci["runId"]
+                or service_ci.get("conclusion") != "success" or service_ci.get("headSha") != sources["wb"]["gitSha"]
+                or type(service_ci.get("artifactId")) is not int or service_ci["artifactId"] <= 0
+                or not re.fullmatch(r"sha256:[0-9a-f]{64}", str(service_ci.get("artifactDigest", "")))):
+            raise UpdateError("Invalid standalone service provenance")
     return document
 
 
@@ -210,7 +234,12 @@ def crosscheck_bundle(path, document):
     if manifest.get("schemaVersion") != 1 or manifest.get("version") != document["version"]:
         raise UpdateError("Archive version differs from deployment.json")
     for site, source in document["sources"].items():
-        if manifest.get("sites", {}).get(site, {}).get("gitSha") != source["gitSha"]:
+        entry = manifest.get("sites", {}).get(site, {})
+        if document["schemaVersion"] == 2:
+            ci = source["ci"]
+            if any(entry.get(key) != ci.get(key) for key in ("artifactId", "artifactDigest", "artifactName", "runId")) or entry.get("repository") != SUITE_REPO:
+                raise UpdateError(f"Archive artifact provenance differs for {site}")
+        if entry.get("gitSha") != source["gitSha"]:
             raise UpdateError(f"Archive source SHA differs from deployment.json for {site}")
 
 
@@ -229,12 +258,13 @@ def atomic_json(path, data):
 
 
 class Updater:
-    def __init__(self, base=Path("/srv/wisplab"), github=None, runner=subprocess.run):
+    def __init__(self, base=Path("/srv/wisplab"), github=None, runner=subprocess.run, repository=REPOSITORY):
+        self.repository = repository
         self.base = Path(base)
         self.home = self.base / "updater"
         self.installer = self.base / "bin/deploy.py"
         self.state_path = self.home / "state.json"
-        self.github = github or GitHub()
+        self.github = github or GitHub(repository)
         self.runner = runner
         self.logger = logging.getLogger(f"wisplab-updater-{id(self)}")
 
@@ -292,7 +322,7 @@ class Updater:
                 return {"status": "no-release"}
             if not valid_release(release) or (tag and release["tag_name"] != tag):
                 raise UpdateError("Requested release is not a published stable WispLab deployment")
-            if state.get("releaseId") == release["id"] and state.get("tag") == release["tag_name"]:
+            if state.get("repository", REPOSITORY) == self.repository and state.get("releaseId") == release["id"] and state.get("tag") == release["tag_name"]:
                 if tag:
                     state["pinnedTag"] = tag
                     atomic_json(self.state_path, state)
@@ -300,11 +330,11 @@ class Updater:
             self.logger.info("Preparing release %s (id %s)", release["tag_name"], release["id"])
             with tempfile.TemporaryDirectory(prefix="download-", dir=self.home) as temporary:
                 work = Path(temporary)
-                manifest_asset = asset(release, "deployment.json")
+                manifest_asset = asset(release, "deployment.json", self.repository)
                 manifest_path = work / "deployment.json"
                 manifest_sha = self.github.download(manifest_asset["browser_download_url"], manifest_path, manifest_asset["size"], MAX_JSON)
-                document = validate_manifest(json_load(manifest_path.read_bytes()))
-                archive_asset = asset(release, document["archive"]["fileName"])
+                document = validate_manifest(json_load(manifest_path.read_bytes()), self.repository)
+                archive_asset = asset(release, document["archive"]["fileName"], self.repository)
                 archive_path = work / document["archive"]["fileName"]
                 checksum = self.github.download(archive_asset["browser_download_url"], archive_path, archive_asset["size"], MAX_ARCHIVE)
                 if checksum != document["archive"]["sha256"]:
@@ -316,7 +346,7 @@ class Updater:
                 if result.returncode:
                     detail = (result.stderr or result.stdout or "no diagnostics").strip()[-1600:]
                     raise UpdateError(f"Fixed deploy.py failed ({result.returncode}): {detail}")
-                updated = {"schemaVersion": 1, "releaseId": release["id"], "tag": release["tag_name"],
+                updated = {"schemaVersion": 1, "repository": self.repository, "releaseId": release["id"], "tag": release["tag_name"],
                            "version": document["version"], "archiveSha256": checksum,
                            "deploymentManifestSha256": manifest_sha, "sources": document["sources"], "deployedAtUtc": now()}
                 if tag:
@@ -341,12 +371,14 @@ def main():
     options = parser.add_mutually_exclusive_group()
     options.add_argument("--tag", help="Deploy and pin this published release tag (manual rollback)")
     options.add_argument("--resume", action="store_true", help="Remove a manual pin and follow the latest published release")
+    parser.add_argument("--repository", choices=(REPOSITORY, SUITE_REPO), default=REPOSITORY,
+                        help="Release source; legacy tags keep their original repository")
     args = parser.parse_args()
     if os.geteuid() != 0:
         parser.error("Run the installed updater as root")
     os.umask(0o077)
     try:
-        print(json.dumps(Updater().run(args.tag, args.resume)))
+        print(json.dumps(Updater(repository=args.repository).run(args.tag, args.resume)))
     except Exception as error:
         print(f"ERROR: {error}", file=sys.stderr)
         return 1

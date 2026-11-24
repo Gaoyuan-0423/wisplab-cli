@@ -71,21 +71,21 @@ def optional_api(path):
     return json.loads(result.stdout)
 
 
-def find_release(tag, release_id=None):
+def find_release(tag, release_id=None, repository=RELEASE_REPO):
     # GitHub 的按 tag 查询只返回已发布版本；草稿必须按 ID 或在授权列表中查找。
     if release_id is not None:
         if type(release_id) is not int or release_id <= 0:
             raise ReleaseError("保存的 Release ID 无效。")
-        release = api(f"repos/{RELEASE_REPO}/releases/{release_id}")
+        release = api(f"repos/{repository}/releases/{release_id}")
         if release.get("tag_name") != tag:
             raise ReleaseError("保存的 Release ID 与本次 tag 不一致。")
         return release
-    release = optional_api(f"repos/{RELEASE_REPO}/releases/tags/{tag}")
+    release = optional_api(f"repos/{repository}/releases/tags/{tag}")
     if release:
         return release
     matches = []
     for page in range(1, 21):
-        rows = api(f"repos/{RELEASE_REPO}/releases?per_page=100&page={page}")
+        rows = api(f"repos/{repository}/releases?per_page=100&page={page}")
         matches.extend(row for row in rows if row.get("tag_name") == tag)
         if len(matches) > 1:
             raise ReleaseError("存在多个同名 Release 草稿，停止以免操作错误版本。")

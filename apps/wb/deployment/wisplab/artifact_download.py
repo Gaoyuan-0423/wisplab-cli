@@ -20,7 +20,7 @@ import urllib.error
 import urllib.request
 import zipfile
 
-REPOSITORIES = {"Gaoyuan-0423/blot-workbench", "Gaoyuan-0423/pathology-workbench", "Gaoyuan-0423/pcr-workbench"}
+REPOSITORIES = {"Gaoyuan-0423/wisplab-cli", "Gaoyuan-0423/blot-workbench", "Gaoyuan-0423/pathology-workbench", "Gaoyuan-0423/pcr-workbench"}
 MAX_BYTES = 512 * 1024 * 1024
 MAX_FILE_BYTES = 256 * 1024 * 1024
 MAX_FILES = 10000
@@ -247,11 +247,14 @@ def download_artifact(repository, artifact, destination, *, required_file, progr
     artifact_id = artifact.get("id")
     size = artifact.get("size_in_bytes")
     digest = artifact.get("digest")
-    if repository not in REPOSITORIES or artifact.get("name") not in ("web-dist", "github-pages") or artifact.get("expired") is not False:
+    allowed = {"web-dist", "github-pages"}
+    if repository == "Gaoyuan-0423/wisplab-cli":
+        allowed = {"web-dist-wb", "web-dist-pathology", "web-dist-pcr", "web-dist-blotlens", "blotlens-linux"}
+    if repository not in REPOSITORIES or artifact.get("name") not in allowed or artifact.get("expired") is not False:
         raise ArtifactError("不是受支持且仍有效的 GitHub Actions 工件。")
     if type(size) is not int or not 0 < size <= MAX_BYTES or not isinstance(digest, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
         raise ArtifactError("GitHub 工件大小或 SHA256 摘要缺失，拒绝下载。")
-    if required_file not in ("index.html", "artifact.tar"):
+    if required_file not in ("index.html", "artifact.tar", "blotlens-linux.tar.gz"):
         raise ArtifactError("工件入口无效。")
     if destination.exists() or destination.is_symlink():
         raise ArtifactError("完整工件目标已存在，拒绝覆盖。")

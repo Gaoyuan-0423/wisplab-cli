@@ -57,12 +57,12 @@ See the [architecture and roadmap](docs/architecture.md) and [batch automation d
 
 ## Local use and development
 
-These API and new-guide instructions apply only to the development branch; they are not a desktop installer. Use Git and Node.js 22.12 or a newer compatible version. The same commands work in Windows and macOS terminals. From your cloned repository, switch to the development branch before starting:
+From the WispLab repository root, install both WB and BlotLens dependencies with Node.js 22.12 or later.
 
 ```sh
-git fetch origin
-git switch codex/configurable-vision-api
+cd apps/wb
 npm ci
+npm --prefix ../blotlens ci
 npm run local
 ```
 

@@ -14,6 +14,7 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'deployment/wisplab'))
 import release
+import suite_release
 
 # Reuse the web publisher's credential-safe transport and ZIP validation, with
 # separate desktop limits. Do not change the web publisher's module constants.
@@ -24,7 +25,7 @@ spec.loader.exec_module(transport)
 transport.MAX_BYTES = 2 * 1024**3
 transport.MAX_FILE_BYTES = 1024**3
 
-REPOSITORY = 'Gaoyuan-0423/blot-workbench'
+REPOSITORY = suite_release.REPOSITORY
 WORKFLOW = '.github/workflows/desktop.yml'
 PLATFORMS = ('mac-arm64', 'mac-x64', 'win-x64')
 TAG_RE = re.compile(r'wisplab-desktop-((?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)-experimental\.(?:0|[1-9][0-9]*))\Z')
@@ -127,7 +128,8 @@ def validate_manifest(raw, run, expected, version):
             'Manifest must describe a clean, unsigned CI build at the source desktop run SHA.')
     sources = manifest.get('sources', {})
     require(set(sources) == {'wb', 'pathology', 'pcr', 'portal'}, 'Unexpected manifest source set.')
-    for tool, repository in release.REPOS.items():
+    for tool in suite_release.WEB_APPS:
+        repository = REPOSITORY
         source = sources[tool]
         ci = source.get('ci', {})
         require(source.get('repository') == repository and source.get('gitSha') == expected[tool]
@@ -135,7 +137,7 @@ def validate_manifest(raw, run, expected, version):
                 and ci.get('headSha') == expected[tool] and ci.get('conclusion') == 'success'
                 and type(ci.get('runId')) is int and ci['runId'] > 0
                 and type(ci.get('artifactId')) is int and ci['artifactId'] > 0
-                and ci.get('artifactName') == 'web-dist'
+                and ci.get('artifactName') == f'web-dist-{tool}'
                 and DIGEST_RE.fullmatch(ci.get('artifactDigest') or ''),
                 f'{tool} manifest does not match the requested clean successful CI source.')
     portal = sources['portal']
@@ -251,13 +253,13 @@ def publish_bundle(folder, tag, run, artifacts, expected):
     sha = run['head_sha']
     files = {file.name: file for file in folder.iterdir()}
     check_tag(tag, sha)
-    document = release.find_release(tag)
+    document = release.find_release(tag, None, REPOSITORY)
     if document is None:
         release.command('gh', 'release', 'create', tag, '--repo', REPOSITORY,
                         '--target', sha, '--title', f'WispLab Desktop {TAG_RE.fullmatch(tag)[1]}',
                         '--notes-file', str(folder / 'RELEASE-NOTES.md'),
                         '--draft', '--prerelease', '--latest=false')
-        document = release.find_release(tag)
+        document = release.find_release(tag, None, REPOSITORY)
         require(document is not None, 'Draft creation outcome unknown; rerun with the same inputs.')
     check_draft(document, tag, sha, notes)
     identifier = document['id']
@@ -267,13 +269,13 @@ def publish_bundle(folder, tag, run, artifacts, expected):
         if name not in assets:
             # No --clobber: a failed upload is never silently replaced.
             release.command('gh', 'release', 'upload', tag, str(file), '--repo', REPOSITORY, timeout=1800)
-        document = release.find_release(tag, identifier)
+        document = release.find_release(tag, identifier, REPOSITORY)
     check_draft(document, tag, sha, notes)
     check_assets(document, files, complete=True)
     check_tag(tag, sha)
     release.command('gh', 'api', '--method', 'PATCH', f'repos/{REPOSITORY}/releases/{identifier}',
                     '-F', 'draft=false', '-F', 'prerelease=true', '-f', 'make_latest=false')
-    document = release.find_release(tag, identifier)
+    document = release.find_release(tag, identifier, REPOSITORY)
     require(document.get('draft') is False and document.get('prerelease') is True
             and document.get('target_commitish') == sha and document.get('body') == notes,
             'Publication not confirmed; inspect the existing release before retrying.')
@@ -286,15 +288,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--run-id', required=True, type=run_id)
     parser.add_argument('--tag', required=True, type=desktop_tag)
-    for tool in release.REPOS:
-        parser.add_argument(f'--{tool}-sha', required=True, type=full_sha)
+    parser.add_argument('--sha', required=True, type=full_sha)
     parser.add_argument('--publish', action='store_true', help='Explicitly create/resume and publish a verified draft.')
     args = parser.parse_args()
-    expected = {tool: getattr(args, tool + '_sha') for tool in release.REPOS}
+    expected = {tool: args.sha for tool in suite_release.WEB_APPS}
     run, artifacts = get_build(args.run_id)
+    require(run['head_sha'] == args.sha, 'Desktop shell and tools must share one suite commit.')
     notes = notes_for(args.tag, run, artifacts, expected)
     check_tag(args.tag, run['head_sha'])
-    existing = release.find_release(args.tag)
+    existing = release.find_release(args.tag, None, REPOSITORY)
     if existing:
         check_draft(existing, args.tag, run['head_sha'], notes)
     with tempfile.TemporaryDirectory(prefix='wisplab-desktop-release-') as temporary:

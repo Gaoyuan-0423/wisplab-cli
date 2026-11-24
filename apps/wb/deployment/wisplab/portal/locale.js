@@ -137,6 +137,9 @@ export const messages = {
     zh: "PCR 分析",
     en: "PCR ANALYSIS",
   },
+  "blotlens.title": { zh: "BlotLens 条带截图复核", en: "BlotLens blot screenshot review" },
+  "blotlens.description": { zh: "核对截图中的条带与背景选区，比较相对强度并导出标注。", en: "Review band and background regions, compare relative intensity, and export annotations." },
+  "blotlens.open": { zh: "打开 BlotLens", en: "Open BlotLens" },
   "wb.title": {
     zh: "WB 条带分析",
     en: "Western blot analysis",
@@ -370,7 +373,9 @@ function initialize() {
     }
     for (const link of document.querySelectorAll("a[data-language-link]")) {
       link.href = languageUrl(
-        link.getAttribute("href"),
+        location.protocol === "app:" && link.hasAttribute("data-blotlens-link")
+          ? "/wb/blotlens/index.html"
+          : link.getAttribute("href"),
         language,
         location.href,
       );

@@ -37,7 +37,8 @@ REPOSITORIES = {
 PORTAL_FILES = {"index.html", "styles.css", "favicon.svg"}
 PORTAL_OPTIONAL_FILES = {"locale.js", "support.html", "privacy.html", "platform/client.js", "platform/wisplab.js", "platform/wisplab.css", "platform/manifest.json"}
 PLATFORM_FILES = {"platform/client.js", "platform/wisplab.js", "platform/wisplab.css", "platform/manifest.json"}
-ORT_FILES = {"ort-wasm-simd-threaded.wasm", "ort-wasm-simd-threaded.mjs"}
+ORT_FILES = {"ort-wasm-simd-threaded.wasm", "ort-wasm-simd-threaded.mjs",
+             "ort-wasm-simd-threaded.jsep.wasm", "ort-wasm-simd-threaded.jsep.mjs"}
 FORBIDDEN_COMPONENTS = {
     "node_modules", "src", "tests", "test", "fixtures", "test-results",
     "playwright-report", "private", "secrets", "credentials", "__pycache__",
@@ -311,8 +312,13 @@ def validate_ci_provenance(provenance: dict) -> tuple[dict, dict | None]:
     sites = provenance.get("sites")
     if not isinstance(sites, dict) or set(sites) != set(REPOSITORIES):
         raise PackageError("CI provenance requires exactly wb/pathology/pcr site identities")
+    monorepo = provenance.get("layout") == "monorepo"
+    if monorepo and len({(str(item.get("gitSha")), str(item.get("runId"))) for item in sites.values() if isinstance(item, dict)}) != 1:
+        raise PackageError("Monorepo artifacts must share one commit and CI run")
     validated = {}
-    for site, repository in REPOSITORIES.items():
+    for site, legacy_repository in REPOSITORIES.items():
+        repository = "Gaoyuan-0423/wisplab-cli" if monorepo else legacy_repository
+        artifact_name = f"web-dist-{site}" if monorepo else "web-dist"
         entry = sites[site]
         if not isinstance(entry, dict) or entry.get("repository") != repository:
             raise PackageError(f"CI provenance must identify the configured {site} repository")
@@ -322,15 +328,15 @@ def validate_ci_provenance(provenance: dict) -> tuple[dict, dict | None]:
         run_id = entry.get("runId")
         if type(run_id) is not int or run_id <= 0:
             raise PackageError(f"CI provenance needs a positive integer runId for {site}")
-        if entry.get("artifactName", "web-dist") != "web-dist":
-            raise PackageError(f"CI artifact for {site} must be web-dist")
+        if entry.get("artifactName", "web-dist") != artifact_name:
+            raise PackageError(f"CI artifact for {site} must be {artifact_name}")
         run_url = f"https://github.com/{repository}/actions/runs/{run_id}"
         if "runUrl" in entry and entry["runUrl"] != run_url:
             raise PackageError(f"CI runUrl does not match repository and runId for {site}")
         identity = {
             "sourceKind": "github-actions-artifact", "repository": repository,
             "gitSha": commit, "runId": run_id, "runUrl": run_url,
-            "artifactName": "web-dist",
+            "artifactName": artifact_name,
         }
         if "artifactId" in entry:
             if type(entry["artifactId"]) is not int or entry["artifactId"] <= 0:
@@ -344,7 +350,8 @@ def validate_ci_provenance(provenance: dict) -> tuple[dict, dict | None]:
         validated[site] = identity
     portal = provenance.get("portal")
     if portal is not None:
-        if not isinstance(portal, dict) or portal.get("repository") != REPOSITORIES["wb"] or portal.get("gitSha") != validated["wb"]["gitSha"] or portal.get("sourcePath") != "deployment/wisplab/portal":
+        portal_path = "apps/wb/deployment/wisplab/portal" if monorepo else "deployment/wisplab/portal"
+        if not isinstance(portal, dict) or portal.get("repository") != validated["wb"]["repository"] or portal.get("gitSha") != validated["wb"]["gitSha"] or portal.get("sourcePath") != portal_path:
             raise PackageError("Portal provenance must identify deployment/wisplab/portal at the exact WB commit")
         portal = {"sourceKind": "repository-portal", **{key: portal[key] for key in ("repository", "gitSha", "sourcePath")}}
     return validated, portal
@@ -354,7 +361,13 @@ def validate_ci_layout(site: str, files: dict[str, bytes]) -> None:
     """CI replaces local Git comparison; retain narrow public static layouts."""
     public_suffixes = {".png", ".jpg", ".jpeg", ".webp", ".svg", ".json", ".csv", ".txt", ".md", ".zip", ".rdml", ".xml", ".xlsx"}
     validate_platform(files)
+    embedded = {name.removeprefix("blotlens/"): data for name, data in files.items() if name.startswith("blotlens/")}
+    if site == "wb" and embedded:
+        check_index("BlotLens", embedded)
+        validate_ci_layout("blotlens", embedded)
     for name in files:
+        if site == "wb" and name.startswith("blotlens/") and embedded:
+            continue
         if name in PLATFORM_FILES:
             continue
         if name in {"index.html", "THIRD_PARTY_NOTICES.txt"}:

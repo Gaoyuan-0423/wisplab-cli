@@ -37,11 +37,12 @@ def artifacts():
 
 def manifest():
     sources = {}
-    for tool, repository in publisher.release.REPOS.items():
+    for tool in publisher.suite_release.WEB_APPS:
+        repository = publisher.REPOSITORY
         sources[tool] = {'repository': repository, 'gitSha': SHAS[tool], 'dirty': False,
                          'buildOrigin': 'successful-ci-artifact',
                          'ci': {'headSha': SHAS[tool], 'conclusion': 'success',
-                                'runId': 101, 'artifactId': 201, 'artifactName': 'web-dist',
+                                'runId': 101, 'artifactId': 201, 'artifactName': 'web-dist-' + tool,
                                 'artifactDigest': 'sha256:' + 'f' * 64}}
     sources['portal'] = {'repository': publisher.REPOSITORY, 'gitSha': SHAS['wb'],
                          'dirty': False, 'buildOrigin': 'pinned-source'}

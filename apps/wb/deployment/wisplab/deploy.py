@@ -241,8 +241,19 @@ def caddy_snippet(base: Path) -> bytes:
     blocks = [f"# Managed by {OWNER}; static sites and optional cloud API import; preserve the main Caddyfile.\n"]
     for site, domain in SITES.items():
         cloud = "    import /etc/caddy/wisplab-cloud/*.caddy\n" if site == "portal" else ""
+        review_api = """    handle /blotlens/api/* {
+        uri strip_prefix /blotlens
+        request_body {
+            max_size 24MB
+        }
+        reverse_proxy 127.0.0.1:4319 {
+            header_up X-Real-IP {remote_host}
+            header_up -X-Forwarded-Host
+        }
+    }
+""" if site == "wb" else ""
         blocks.append(f'''{domain} {{
-{cloud}    encode zstd gzip
+{cloud}{review_api}    encode zstd gzip
     header Cache-Control "no-cache"
     handle /release.json {{
         root * {base}/current

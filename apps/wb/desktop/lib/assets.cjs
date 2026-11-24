@@ -57,10 +57,16 @@ function route(input) {
   const relative = parts.join('/') || 'index.html';
   return { tool, file: relative.endsWith('/') ? relative + 'index.html' : relative };
 }
-function headers(type) {
+function headers(type, target) {
+  let policy = CONTENT_SECURITY_POLICY;
+  if (target?.tool === 'wb' && target.file === 'index.html') {
+    policy = policy.replace("frame-src 'none'", "frame-src app://wisplab/wb/blotlens/");
+  } else if (target?.tool === 'wb' && target.file === 'blotlens/index.html') {
+    policy = policy.replace("frame-ancestors 'none'", "frame-ancestors 'self'");
+  }
   return {
     'Content-Type': type,
-    'Content-Security-Policy': CONTENT_SECURITY_POLICY,
+    'Content-Security-Policy': policy,
     'X-Content-Type-Options': 'nosniff',
     'Cross-Origin-Opener-Policy': 'same-origin',
     'Cross-Origin-Embedder-Policy': 'require-corp',
@@ -87,7 +93,7 @@ async function serveAsset(request, appsRoot) {
     const type = TYPES[path.extname(file).toLowerCase()];
     const stat = await fs.stat(file);
     if (!type || !stat.isFile() || stat.size > 256 * 1024 * 1024) return reply('Not found', 404);
-    return new Response(request.method === 'HEAD' ? null : await fs.readFile(file), { headers: headers(type) });
+    return new Response(request.method === 'HEAD' ? null : await fs.readFile(file), { headers: headers(type, target) });
   } catch { return reply('Not found', 404); }
 }
 module.exports = { APP_ORIGIN, API_ORIGINS, CONTENT_SECURITY_POLICY, isAppUrl, route, serveAsset };
