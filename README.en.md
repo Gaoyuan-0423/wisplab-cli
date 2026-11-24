@@ -1,25 +1,24 @@
-# wisplab-cli
+# WispLab
 
 [中文](README.md) | **English** · [Getting started](GETTING-STARTED.en.md) · [中文上手指南](GETTING-STARTED.md)
 
-A local CLI and MCP interface for **Western blot, IHC/histology, two-channel immunofluorescence colocalization, and qPCR**. It calls analysis code from your configured WispLab repositories so scripts and AI assistants can use the same engines and receive JSON results.
-
-**中文：** WispLab 的本地命令行与 MCP 接口，复用三个分析引擎，为脚本和 AI 助手提供 WB、组织染色、IF 共定位和 qPCR 定量。[阅读完整中文介绍 →](README.md)
+WispLab contains four applications for Western blots, pathology and immunofluorescence, qPCR, and BlotLens screenshot review. The CLI and MCP server use the analysis code from the corresponding workbench. BlotLens supports editable ROIs, trend review and exports.
 
 ## Capabilities
 
 | Command | Engine | Exposed capabilities |
 | --- | --- | --- |
-| `wb` | [blot-workbench](https://github.com/Gaoyuan-0423/blot-workbench) | PNG/TIFF lane proposals, a specified panel strip, local or rolling-ball background subtraction, dark/light signal, net-signal ratios against a control lane |
-| `ihc` | [pathology-workbench](https://github.com/Gaoyuan-0423/pathology-workbench) | Whole-image and hash-bound ROI H-DAB/H&E/Masson analysis; positive area, nuclei/H-score, mpp, nucleus export and local PNG/HTML review; H-DAB negative-control calibration |
+| `wb` | [blot-workbench](apps/wb/) | PNG/TIFF lane proposals, a specified panel strip, local or rolling-ball background subtraction, dark/light signal, net-signal ratios against a control lane |
+| `ihc` | [pathology-workbench](apps/pathology/) | Whole-image and hash-bound ROI H-DAB/H&E/Masson analysis; positive area, nuclei/H-score, mpp, nucleus export and local PNG/HTML review; H-DAB negative-control calibration |
 | `if` | Same as above | Pearson, thresholded Pearson, Manders M1/M2 and overlays for two selected RGB channels (default R/G) |
-| `pcr` | [pcr-workbench](https://github.com/Gaoyuan-0423/pcr-workbench) | Selectable sheet/header/columns; single-reference normalization (multiple references optional), ΔΔCt/Pfaffl, QC/NTC, explicit paired/unpaired groups and individual 95% intervals |
+| `pcr` | [pcr-workbench](apps/pcr/) | Selectable sheet/header/columns; single-reference normalization (multiple references optional), ΔΔCt/Pfaffl, QC/NTC, explicit paired/unpaired groups and individual 95% intervals |
 | `pcr-preview` | qPCR engine | Parse-only inspection of worksheets, source rows, column mappings and issues |
 | `ihc-annotation-pack` / `ihc-nuclei-validate` | Offline local tools | Original-image annotation packs, resumable drafts, one-to-one nucleus matching and optional independent H-score errors |
 | `ihc-validate` | Offline JSON comparison | Hash-bound comparison of existing IHC results and reference counts, H-score or positive area; no engine config needed |
+| `blotlens` | [BlotLens](apps/blotlens/) | Start the local screenshot review service for ROI editing, measurements and exports. |
 | `doctor` | Local environment | Separate dependency `ready` and locked-revision `verified` states; `--strict` fails when unverified |
 
-CLI and MCP share `lib.mjs`. WB/qPCR use each engine repository's `tsx`; IHC/IF call the browser engine through local Vite and Playwright Chromium. **The bridge itself has no npm runtime dependencies**, but the engines and Chromium must be installed separately. It runs the configured local revisions: updating this repository does not update the engines automatically.
+The CLI and MCP share the bundled engines. WB and qPCR use the application-local tsx. IHC and IF use local Vite and Playwright Chromium. Each app retains its own dependency lockfile.
 
 ## Quick start
 
@@ -28,7 +27,7 @@ Requires Git, Node.js ≥ 22.12, and the runtime requirements of the three engin
 ```sh
 git clone https://github.com/Gaoyuan-0423/wisplab-cli.git
 cd wisplab-cli
-node scripts/setup-engines.mjs --root ../wisplab-verified-engines --config ./wisplab.config.json
+npm run setup
 node cli.mjs doctor --strict
 node cli.mjs --help
 npm link                 # Optional: enable the wisplab command
@@ -52,13 +51,24 @@ wisplab if duplex.png --channels R,B --review-dir ./reviews
 wisplab ihc-validate result.json reference.json
 ```
 
-The installer reads `engines.lock.json`, installs pinned revisions and dependencies into a new directory, and creates a new configuration. It refuses existing destinations/configs. Existing engines may still be configured manually; see [verified installation](docs/verified-engines.md).
+For reproducibility with external engine checkouts, see [verified engines](docs/verified-engines.md).
 
 `--strip y,h,x0,x1` uses original image pixels: `h` is the height and `x1` the right boundary. Include background margins and exclude markers, labels, and other panels. For WB, `--control` is a lane number starting at 1; for qPCR, it is a comma-separated list of sample names. Per-file analysis errors set CLI exit code 1 or MCP `isError: true`, while retaining JSON results. Inspect `warnings` even after successful execution.
 
+## Open a workbench
+
+From the repository root, run one command and open the local address printed by the application.
+
+```sh
+npm --prefix apps/wb run dev
+npm --prefix apps/pathology run dev
+npm --prefix apps/pcr run dev
+node cli.mjs blotlens
+```
+
 ## Configuration
 
-Precedence: `--config <path>` → `WISPLAB_CONFIG` → `wisplab.config.json` in the current directory → the same file in the CLI directory. A missing explicitly selected config is an error. The `repos` and `allowPaths` values support `~`; relative paths are resolved against the config file's directory.
+Precedence: `--config <path>` → `WISPLAB_CONFIG` → `wisplab.config.json` in the current directory → the same file in the CLI directory → bundled defaults. A missing explicitly selected config is an error. The `repos` and `allowPaths` values support `~`; relative paths are resolved against the config file's directory.
 
 ```json
 {

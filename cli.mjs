@@ -5,7 +5,7 @@ import { compareNucleiReference } from "./ihc-nuclei-validation.mjs";
 import { createAnnotationPack } from "./ihc-annotation-pack.mjs";
 import { compareIhcReference } from "./ihc-validation.mjs";
 import { readFileSync } from "node:fs";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runAnalysisJob, normalizeRuntime } from "./runtime-controls.mjs";
@@ -35,6 +35,7 @@ const HELP = `wisplab — WispLab 三引擎无头定量（与 MCP server 共用�
                        只解析与检查来源，不做表达量分析 / Parse-only preview with source rows
   wisplab grade <模块> <提交.json>   AI 分析评分（模块：pcr|ihc|wb|synthetic16）
   wisplab verify-pcr [验证目录]
+  wisplab blotlens                在本机启动截图趋势核对 / Launch the local screenshot reviewer
   wisplab doctor [--strict]      环境/引擎修订检查 / Check engine readiness
   wisplab --version
 
@@ -76,7 +77,7 @@ try {
       pcr: ["timeout-ms", "ref", "control", "eff", "min-cq", "max-cq", "abs-dev", "z-score", "rep-sd", "qc-mode", "exclude-rows", "groups", "control-group", "sheet", "header-row", "columns", "paired", "pair-ids"],
       "pcr-preview": ["timeout-ms", "sheet", "header-row", "columns"],
       ihc: ["timeout-ms", "file-timeout-ms", "profile", "control-tif", "coloc", "roi-manifest", "channels", "mpp", "nuclei", "review-dir"], if: ["timeout-ms", "file-timeout-ms", "channels", "review-dir"],
-      grade: [], "verify-pcr": [], doctor: ["strict"], "ihc-validate": [], "ihc-annotation-pack": ["images-root", "output-dir"], "ihc-nuclei-validate": ["match-radius"],
+      blotlens: [], grade: [], "verify-pcr": [], doctor: ["strict"], "ihc-validate": [], "ihc-annotation-pack": ["images-root", "output-dir"], "ihc-nuclei-validate": ["match-radius"],
     };
     if (!allowed[cmd]) throw new Error(`未知命令 / Unknown command: ${cmd}`);
     for (const key of Object.keys(opts)) if (key !== "config" && !allowed[cmd].includes(key)) throw new Error(`--${key}: unsupported for ${cmd}`);
@@ -92,7 +93,23 @@ try {
       process.once("SIGINT", () => controller.abort());
       process.once("SIGTERM", () => controller.abort());
     }
-    if (cmd === "ihc-annotation-pack") {
+    if (cmd === "blotlens") {
+      if (files.length) throw new Error("Usage: wisplab blotlens");
+      const cwd = join(CLI_DIR, "apps", "blotlens");
+      const child = spawn(process.execPath, ["--import", "tsx", "server/index.ts"], { cwd, stdio: "inherit" });
+      const stop = () => child.kill("SIGTERM");
+      process.once("SIGINT", stop);
+      process.once("SIGTERM", stop);
+      try {
+        process.exitCode = await new Promise((accept, reject) => {
+          child.once("error", reject);
+          child.once("exit", (code, signal) => accept(code ?? (signal === "SIGTERM" ? 143 : 1)));
+        });
+      } finally {
+        process.off("SIGINT", stop);
+        process.off("SIGTERM", stop);
+      }
+    } else if (cmd === "ihc-annotation-pack") {
       if(files.length !== 1) throw new Error("ihc-annotation-pack: expected result.json");
       console.log(JSON.stringify(createAnnotationPack(JSON.parse(readFileSync(files[0], "utf8")), {imagesRoot:opts["images-root"],outputDir:opts["output-dir"]}),null,2));
     } else if (cmd === "ihc-nuclei-validate") {

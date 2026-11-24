@@ -3,20 +3,18 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { execFileSync, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { config, runPcr } from '../../lib.mjs';
+import { assertVerifiedEngine } from './verified-engine.mjs';
+import { config, loadConfig, runPcr } from '../../lib.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const close = (a,b,tol=1e-9) => assert.ok(Number.isFinite(a) && Math.abs(a-b)<=tol, `${a} != ${b}`);
 
 test('compatible real engine experimental-unit contract', {timeout:120000}, async t => {
-  assert.ok(process.env.WISPLAB_UNIT_ENGINE, 'Set WISPLAB_UNIT_ENGINE to a compatible pcr-workbench checkout');
-  const engine = resolve(process.env.WISPLAB_UNIT_ENGINE);
-  const pinPath = new URL('./experimental-unit-engine.json', import.meta.url);
-  const pin = JSON.parse(readFileSync(pinPath, 'utf8'));
-  assert.equal(execFileSync('git',['rev-parse','HEAD'],{cwd:engine,encoding:'utf8'}).trim(), pin.revision);
-  assert.equal(execFileSync('git',['status','--porcelain'],{cwd:engine,encoding:'utf8'}).trim(), '', 'Use a clean candidate engine');
+  const engine = resolve(process.env.WISPLAB_UNIT_ENGINE ?? loadConfig().repos.pcr);
+  const pin = JSON.parse(readFileSync(new URL('./experimental-unit-engine.json', import.meta.url), 'utf8'));
+  assertVerifiedEngine('pcr', engine, pin.revision);
   const dir=mkdtempSync(join(tmpdir(),'wisplab-unit-contract-'));
   t.after(()=>rmSync(dir,{recursive:true,force:true}));
   const cfg=join(dir,'config.json');

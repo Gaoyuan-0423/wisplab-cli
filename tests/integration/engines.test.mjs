@@ -8,19 +8,18 @@ import { createRequire } from 'node:module';
 import { createServer } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
+import { assertVerifiedEngine } from './verified-engine.mjs';
 import { loadConfig, config, runWb, runPcr, runIhc } from '../../lib.mjs';
 import { blot, histology, fluorescence, plateCsv, plateMatrix, rdmlXml } from './fixtures.mjs';
 
 const root=fileURLToPath(new URL('../..',import.meta.url));
-const lock=JSON.parse(readFileSync(new URL('../../engines.lock.json',import.meta.url)));
 const close=(actual,expected,tolerance=1e-9)=>assert.ok(Number.isFinite(actual)&&Math.abs(actual-expected)<=tolerance,`${actual} != ${expected}`);
 
 test('pinned real WispLab engines', {timeout:240000}, async t=>{
   const cfg=loadConfig();
-  for(const [name,engine] of Object.entries(lock.engines)) {
-    const revision=execFileSync('git',['-C',cfg.repos[name],'rev-parse','HEAD'],{encoding:'utf8'}).trim();
-    assert.equal(revision,engine.revision,`${name}: install revisions in engines.lock.json`);
-    assert.equal(execFileSync('git',['-C',cfg.repos[name],'status','--porcelain'],{encoding:'utf8'}).trim(),'',`${name}: use a clean pinned engine checkout`);
+  const revisions = {};
+  for (const name of ['wb', 'ihc', 'pcr']) {
+    revisions[name] = assertVerifiedEngine(name, cfg.repos[name]).revision;
   }
   const dir=mkdtempSync(join(tmpdir(),'wisplab-integration-'));t.after(()=>rmSync(dir,{recursive:true,force:true}));
   const server=createServer();await new Promise(r=>server.listen(0,'127.0.0.1',r));const port=server.address().port;await new Promise(r=>server.close(r));
@@ -32,7 +31,7 @@ test('pinned real WispLab engines', {timeout:240000}, async t=>{
   const assertManifest=(result,analysis)=>{
     assert.equal(result.provenance.analysis,analysis);
     assert.equal(result.provenance.schemaVersion,'wisplab.provenance/v1');
-    assert.equal(result.provenance.engine.before.revision,lock.engines[analysis==='if'?'ihc':analysis].revision);
+    assert.equal(result.provenance.engine.before.revision,revisions[analysis==='if'?'ihc':analysis]);
     assert.deepEqual(result.provenance.checks,{inputsUnchanged:true,engineUnchanged:true,bridgeUnchanged:true});
     assert.equal(result.provenance.status,'success');
   };

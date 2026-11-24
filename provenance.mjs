@@ -5,6 +5,7 @@ import { spawnSync, execFile } from 'node:child_process';
 import { basename, join } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { cancellationError } from './runtime-controls.mjs';
+import { repositoryScope } from './engine-lock.mjs';
 
 function fingerprint(path) {
   let fd;
@@ -26,15 +27,15 @@ function fingerprint(path) {
 
 export function snapshotRepository(path) {
   const git = (...args) => {
-    const r = spawnSync('git', ['-C', path, ...args], { encoding: 'utf8', timeout: 10000, maxBuffer: 8 * 1024 * 1024 });
+    const r = spawnSync('git', ['--no-optional-locks', '-C', path, ...args], { encoding: 'utf8', timeout: 10000, maxBuffer: 8 * 1024 * 1024 });
     if (r.status !== 0 || r.error) throw new Error('Git metadata unavailable');
     return r.stdout;
   };
   try {
-    if (realpathSync(git('rev-parse', '--show-toplevel').trim()) !== realpathSync(path)) throw new Error('Engine path is not a repository root');
+    const scope = repositoryScope(realpathSync(git('rev-parse', '--show-toplevel').trim()), realpathSync(path));
     const revision = git('rev-parse', 'HEAD').trim();
-    const dirty = git('status', '--porcelain').trim().length > 0;
-    const names = [...new Set(git('ls-files', '-z', '--cached', '--others', '--exclude-standard').split('\0').filter(Boolean))].sort();
+    const dirty = git('status', '--porcelain', '--untracked-files=all', '--', ...scope.paths).trim().length > 0;
+    const names = [...new Set(git('ls-files', '-z', '--cached', '--others', '--exclude-standard', '--', ...scope.paths).split('\0').filter(Boolean))].sort();
     const hash = createHash('sha256');
     let complete = true;
     for (const name of names) {
@@ -42,7 +43,8 @@ export function snapshotRepository(path) {
       hash.update(JSON.stringify([name, f.sha256, f.error ?? null]) + '\n');
       if (!f.sha256 || !f.stableWhileHashing) complete = false;
     }
-    return { revision, dirty, sourceSha256: hash.digest('hex'), sourceFileCount: names.length, complete };
+    return { revision, dirty, ...(scope.modulePath ? { modulePath: scope.modulePath } : {}),
+      sourceSha256: hash.digest('hex'), sourceFileCount: names.length, complete };
   } catch (error) { return { revision: null, dirty: null, sourceSha256: null, complete: false, error: error.message }; }
 }
 
@@ -119,14 +121,14 @@ async function fingerprintAsync(path, signal) {
 async function snapshotRepositoryAsync(path, signal) {
   checkCancelled(signal);
   const git = (...args) => new Promise((resolve, reject) => {
-    execFile('git', ['-C', path, ...args], { encoding: 'utf8', timeout: 10000, maxBuffer: 8 * 1024 * 1024, signal, killSignal: 'SIGKILL' },
+    execFile('git', ['--no-optional-locks', '-C', path, ...args], { encoding: 'utf8', timeout: 10000, maxBuffer: 8 * 1024 * 1024, signal, killSignal: 'SIGKILL' },
       (error, stdout) => error ? reject(error) : resolve(stdout));
   });
   try {
-    if (await realpath((await git('rev-parse', '--show-toplevel')).trim()) !== await realpath(path)) throw new Error('Engine path is not a repository root');
+    const scope = repositoryScope(await realpath((await git('rev-parse', '--show-toplevel')).trim()), await realpath(path));
     const revision = (await git('rev-parse', 'HEAD')).trim();
-    const dirty = (await git('status', '--porcelain')).trim().length > 0;
-    const names = [...new Set((await git('ls-files', '-z', '--cached', '--others', '--exclude-standard')).split('\0').filter(Boolean))].sort();
+    const dirty = (await git('status', '--porcelain', '--untracked-files=all', '--', ...scope.paths)).trim().length > 0;
+    const names = [...new Set((await git('ls-files', '-z', '--cached', '--others', '--exclude-standard', '--', ...scope.paths)).split('\0').filter(Boolean))].sort();
     const hash = createHash('sha256');
     let complete = true;
     for (const name of names) {
@@ -135,11 +137,12 @@ async function snapshotRepositoryAsync(path, signal) {
       if (!f.sha256 || !f.stableWhileHashing) complete = false;
     }
     checkCancelled(signal);
-    return { revision, dirty, sourceSha256: hash.digest('hex'), sourceFileCount: names.length, complete };
+    return { revision, dirty, ...(scope.modulePath ? { modulePath: scope.modulePath } : {}),
+      sourceSha256: hash.digest('hex'), sourceFileCount: names.length, complete };
   } catch (error) {
     checkCancelled(signal);
     return { revision: null, dirty: null, sourceSha256: null, complete: false,
-      error: error.message === 'Engine path is not a repository root' ? error.message : 'Git metadata unavailable' };
+      error: 'Git metadata unavailable' };
   }
 }
 async function captureAsync({ inputs, engineDir, bridgeDir }, signal) {

@@ -6,6 +6,7 @@ import {join} from 'node:path';
 import {pathToFileURL,fileURLToPath} from 'node:url';
 import {createRequire} from 'node:module';
 import {execFileSync,spawnSync} from 'node:child_process';
+import { assertVerifiedEngine } from './verified-engine.mjs';
 import {loadConfig,config,previewPcr,runPcr} from '../../lib.mjs';
 
 const root=fileURLToPath(new URL('../..',import.meta.url));
@@ -13,8 +14,7 @@ const close=(actual,expected,tolerance=1e-9)=>assert.ok(Number.isFinite(actual)&
 
 test('pinned real PCR import and design runner', {timeout:60000},async t=>{
   const cfg=loadConfig(),engine=cfg.repos.pcr;
-  const lock=JSON.parse(readFileSync(new URL('../../engines.lock.json',import.meta.url)));
-  assert.equal(execFileSync('git',['-C',engine,'rev-parse','HEAD'],{encoding:'utf8'}).trim(),lock.engines.pcr.revision);
+  assertVerifiedEngine('pcr', engine);
   const dir=mkdtempSync(join(tmpdir(),'wisplab-pcr-import-'));t.after(()=>rmSync(dir,{recursive:true,force:true}));
   const cfgPath=join(dir,'config.json');writeFileSync(cfgPath,JSON.stringify({...cfg,allowPaths:[dir]}));config(cfgPath);
   const cli=args=>spawnSync(process.execPath,[join(root,'cli.mjs'),...args,'--config',cfgPath],{encoding:'utf8',maxBuffer:32*1024*1024});

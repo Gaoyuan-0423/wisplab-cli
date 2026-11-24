@@ -6,25 +6,21 @@ This guide installs the local CLI/MCP bridge and its three analysis engines. You
 
 If you already have an IHC result JSON and reference JSON, this repository and Node.js are enough to run `node cli.mjs ihc-validate result.json reference.json`. This offline comparison reads no engine configuration and starts no analysis engine or browser.
 
-## 1. Prepare the environment
+## 1. Install the four applications
 
-You need Git, Node.js ≥ 22.12, npm, and macOS, Linux, or Windows WSL; check each engine repository for its specific requirements. Start with `node --version`. The script reads `engines.lock.json` and installs pinned engines, dependencies and Chromium; `--plan` only prints the plan. Destination/config paths must be new. Replace data paths and sample names with your own.
+Use Git, Node.js ≥ 22.12 and npm on macOS, Linux or WSL. The setup command installs dependencies from each app’s lockfile and the matching Chromium browser. On Linux, follow Playwright’s instructions if system libraries are missing.
 
 ```sh
 git clone https://github.com/Gaoyuan-0423/wisplab-cli.git
 cd wisplab-cli
-node scripts/setup-engines.mjs --root ../wisplab-verified-engines --config ./wisplab.config.json --plan
-node scripts/setup-engines.mjs --root ../wisplab-verified-engines --config ./wisplab.config.json
+npm run setup
 node cli.mjs doctor --strict
+node cli.mjs blotlens
 ```
 
-Install development dependencies: WB/qPCR need the repository's `tsx`; IHC/IF need Vite, Playwright, and its matching Chromium version. Do not use `--omit=dev`. If an older engine revision lacks a lockfile or a required dependency, follow that engine's setup instructions; `doctor` lists missing requirements. On Linux, Chromium may require additional system libraries; follow Playwright's installation messages.
+## 2. Configure data paths and external engines
 
-The bridge itself needs no `npm install`. Installing or upgrading dependencies accesses package servers; analysis uses local engines.
-
-## 2. Configure and check paths
-
-The installer has created your config; do not overwrite it with the example. Edit its `allowPaths` for your data and review-output directories. For existing engines, create a new config from `wisplab.config.example.json`. The following example uses sibling engine repositories and `~/data`:
+Bundled defaults select the three engines in this repository. To customize MCP data access while using these engines, copy `wisplab.config.bundled.json` to `wisplab.config.json` and add the desired paths. The following example instead configures independent checkouts.
 
 ```json
 {
@@ -47,7 +43,7 @@ node cli.mjs --version
 npm link                       # Optional: use wisplab instead of node cli.mjs
 ```
 
-`doctor.ready` means checked dependencies exist; `verified` additionally requires three clean engine repositories matching the lock. `doctor --strict` exits nonzero when unverified and reports current/expected revisions, `matchesLock` and `dirty`. This neither updates engines nor proves scientific accuracy; see [verified engines](docs/verified-engines.md). For multiple configurations, pass `--config /path/to/config.json` or set `WISPLAB_CONFIG`; an explicit path takes precedence.
+`doctor.ready` means checked dependencies exist; `verified` additionally requires clean engine directories matching their locked source trees or external Git revisions. `doctor --strict` exits nonzero when unverified and reports current/expected revisions, `matchesLock` and `dirty`. This neither updates engines nor proves scientific accuracy; see [verified engines](docs/verified-engines.md). For multiple configurations, pass `--config /path/to/config.json` or set `WISPLAB_CONFIG`; an explicit path takes precedence.
 
 ## 3. Run a well-specified analysis
 

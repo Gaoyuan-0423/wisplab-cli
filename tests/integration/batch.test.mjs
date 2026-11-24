@@ -1,21 +1,20 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, readFileSync, rmSync, realpathSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, rmSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, basename } from 'node:path';
-import { execFileSync, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { createServer } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { loadConfig, config, runIhc } from '../../lib.mjs';
 import { histology, fluorescence } from './fixtures.mjs';
+import { assertVerifiedEngine } from './verified-engine.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
-const lock = JSON.parse(readFileSync(new URL('../../engines.lock.json', import.meta.url)));
 
 test('real IHC/IF batches retain good files around failures', { timeout: 180000 }, async t => {
   const cfg = loadConfig();
-  assert.equal(execFileSync('git', ['-C', cfg.repos.ihc, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), lock.engines.ihc.revision);
-  assert.equal(execFileSync('git', ['-C', cfg.repos.ihc, 'status', '--porcelain'], { encoding: 'utf8' }).trim(), '', 'Use a clean pinned IHC engine');
+  assertVerifiedEngine('ihc', cfg.repos.ihc);
   const dir = realpathSync(mkdtempSync(join(tmpdir(), 'wisplab-image-batch-')));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const server = createServer();

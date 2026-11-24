@@ -1,0 +1,8 @@
+{
+  "repos": {
+    "wb": "apps/wb",
+    "ihc": "apps/pathology",
+    "pcr": "apps/pcr"
+  },
+  "ihc": { "devPort": 5173 }
+}

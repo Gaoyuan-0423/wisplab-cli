@@ -1,25 +1,24 @@
-# wisplab-cli
+# WispLab
 
 **中文** | [English](README.en.md) · [上手指南](GETTING-STARTED.md) · [Getting started](GETTING-STARTED.en.md)
 
-WispLab 的本地命令行与 MCP 接口，用于 **Western blot、IHC/组织染色、IF 双通道共定位和 qPCR** 分析。它调用你配置的三个 WispLab 仓库中的分析代码，让脚本和 AI 助手使用同一套引擎，并输出 JSON 结果。
-
-**English:** A local CLI and MCP interface for Western blot, histology, immunofluorescence colocalization, and qPCR analysis, powered by the configured WispLab engine repositories. [Read the full English documentation →](README.en.md)
+WispLab 把 WB、病理/IF、qPCR 和 BlotLens 四个应用放在同一仓库。网页、命令行和 MCP 直接调用对应应用的分析代码。BlotLens 支持基于截图的 ROI 编辑、趋势复核和结果导出。
 
 ## 能做什么
 
 | 命令 | 引擎 | 当前接口提供的能力 |
 | --- | --- | --- |
-| `wb` | [blot-workbench](https://github.com/Gaoyuan-0423/blot-workbench) | PNG/TIFF 泳道提议、指定条带范围、局部或 rolling-ball 背景扣除、亮/暗信号、相对对照泳道的净信号比值 |
-| `ihc` | [pathology-workbench](https://github.com/Gaoyuan-0423/pathology-workbench) | H-DAB、H&E、Masson 整图及哈希绑定 ROI；阳性面积、核计数/H-score、mpp 标尺、核中心导出、本地 PNG/HTML 复核；H-DAB 阴性对照片标定 |
+| `wb` | [blot-workbench](apps/wb/) | PNG/TIFF 泳道提议、指定条带范围、局部或 rolling-ball 背景扣除、亮/暗信号、相对对照泳道的净信号比值 |
+| `ihc` | [pathology-workbench](apps/pathology/) | H-DAB、H&E、Masson 整图及哈希绑定 ROI；阳性面积、核计数/H-score、mpp 标尺、核中心导出、本地 PNG/HTML 复核；H-DAB 阴性对照片标定 |
 | `if` | 同上 | 可选两个不同 RGB 通道（默认 R/G）的 Pearson、阈值后 Pearson、Manders M1/M2 和本地叠加图 |
-| `pcr` | [pcr-workbench](https://github.com/Gaoyuan-0423/pcr-workbench) | 可选工作表/表头/列映射；单内参归一化（多内参可选）、ΔΔCt/Pfaffl、QC/NTC、显式非配对/配对分组与单次比较 95% 区间 |
+| `pcr` | [pcr-workbench](apps/pcr/) | 可选工作表/表头/列映射；单内参归一化（多内参可选）、ΔΔCt/Pfaffl、QC/NTC、显式非配对/配对分组与单次比较 95% 区间 |
 | `pcr-preview` | 同 qPCR 引擎 | 只解析工作表、来源行、列映射与问题，不运行表达量推断 |
 | `ihc-annotation-pack` / `ihc-nuclei-validate` | 离线本地工具 | 原图人工标注包、可恢复草稿、一对一核中心匹配与可选独立 H-score 误差 |
 | `ihc-validate` | 离线 JSON 对照 | 按图像哈希匹配已有分析和参考值；比较核数、H-score、阳性面积，无需引擎配置 |
+| `blotlens` | [BlotLens](apps/blotlens/) | 启动本机截图复核网页，支持 ROI 编辑、测量和导出。 |
 | `doctor` | 本地环境 | 依赖 `ready` 与锁定修订 `verified` 分开报告；`--strict` 未验证时失败 |
 
-CLI 与 MCP 共用 `lib.mjs`。WB/qPCR 由对应仓库的 `tsx` 运行；IHC/IF 通过本地 Vite 和 Playwright Chromium 调用浏览器引擎。**桥接包本身没有 npm 运行依赖**，但三个引擎及 Chromium 必须单独安装。运行的是本地配置的修订，更新本仓库不会自动更新引擎。
+CLI 与 MCP 共用一套引擎。WB/qPCR 使用应用目录中的 tsx，IHC/IF 使用本地 Vite 和 Playwright Chromium。每个应用的依赖由各自的锁文件固定。
 
 ## 快速开始
 
@@ -28,7 +27,7 @@ CLI 与 MCP 共用 `lib.mjs`。WB/qPCR 由对应仓库的 `tsx` 运行；IHC/IF 
 ```sh
 git clone https://github.com/Gaoyuan-0423/wisplab-cli.git
 cd wisplab-cli
-node scripts/setup-engines.mjs --root ../wisplab-verified-engines --config ./wisplab.config.json
+npm run setup
 node cli.mjs doctor --strict
 node cli.mjs --help
 npm link                 # 可选：启用 wisplab 命令
@@ -52,13 +51,24 @@ wisplab if duplex.png --channels R,B --review-dir ./reviews
 wisplab ihc-validate result.json reference.json
 ```
 
-安装脚本读取 `engines.lock.json`，在新目录安装固定修订及依赖，并创建新配置；已有目录或配置不会被覆盖。已有引擎可继续手工配置，详见[固定版本安装](docs/verified-engines.md)。
+已有独立引擎的复现方式见[固定版本安装](docs/verified-engines.md)。
 
 `--strip y,h,x0,x1` 使用原图像素坐标，`h` 为高度，`x1` 为右边界；选区应保留背景余量并排除 marker、文字和其他面板。`--control` 对 WB 是从 1 开始的泳道号，对 qPCR 是逗号分隔的样本名。逐文件分析错误会使 CLI 退出码为 1，MCP 返回 `isError: true`，同时保留 JSON 结果。即使执行成功，也应检查 `warnings`。
 
+## 打开工作台
+
+在仓库根目录运行下列任一命令，按终端显示的本机地址打开。
+
+```sh
+npm --prefix apps/wb run dev
+npm --prefix apps/pathology run dev
+npm --prefix apps/pcr run dev
+node cli.mjs blotlens
+```
+
 ## 配置
 
-配置优先级：`--config <path>` → `WISPLAB_CONFIG` → 当前目录的 `wisplab.config.json` → CLI 目录的同名文件。显式指定的配置不存在时会报错。配置中的 `repos` 和 `allowPaths` 支持 `~`；相对路径以配置文件所在目录为基准。
+配置优先级：`--config <path>` → `WISPLAB_CONFIG` → 当前目录的 `wisplab.config.json` → CLI 目录的同名文件 → 仓内默认配置。显式指定的配置不存在时会报错。配置中的 `repos` 和 `allowPaths` 支持 `~`；相对路径以配置文件所在目录为基准。
 
 ```json
 {

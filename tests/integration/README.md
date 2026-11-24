@@ -5,7 +5,13 @@
 These tests execute the real WB, qPCR and pathology engines, including Chromium. They require clean revisions matching `engines.lock.json`, each engine's locked dependencies and the matching Playwright Chromium. Missing dependencies or mismatched revisions fail explicitly instead of silently skipping.
 
 ```sh
-# 已有引擎并正确配置 / Existing configured engines
+# 统一仓 / Bundled engines
+npm run setup
+node cli.mjs doctor --strict
+npm run test:integration
+npm run test:unit-engine
+
+# 独立引擎 / External configured engines
 WISPLAB_CONFIG=/absolute/path/to/wisplab.config.json npm run test:integration
 
 # 四个仓库的 CI 布局 / CI layout with engines in .engines/wb, .engines/pcr, .engines/ihc
@@ -13,9 +19,9 @@ node scripts/configure-integration.mjs
 WISPLAB_CONFIG=.integration/config.json npm run test:integration
 ```
 
-测试自动创建临时数据与配置、选取临时端口并清理文件；不覆盖用户配置或实验数据。CI 的 `Pinned real engines` job 在 Ubuntu / Node.js 24 上安装并执行整个流程。快速测试仍由 `npm test` 独立执行。
+测试自动创建临时数据与配置、选取临时端口并清理文件；不覆盖用户配置或实验数据。CI 的 `External locked-engine compatibility` job 在 Ubuntu / Node.js 24 上安装并执行整个流程。快速测试仍由 `npm test` 独立执行。
 
-Tests create and clean temporary data/configuration, select a temporary port, and do not overwrite user configuration or experimental data. CI's `Pinned real engines` job installs and runs the entire workflow on Ubuntu / Node.js 24. Fast tests remain available separately through `npm test`.
+Tests create and clean temporary data/configuration, select a temporary port, and do not overwrite user configuration or experimental data. CI's `External locked-engine compatibility` job installs and runs the entire workflow on Ubuntu / Node.js 24. Fast tests remain available separately through `npm test`.
 
 ## 数据与期望值 / Fixtures and expectations
 

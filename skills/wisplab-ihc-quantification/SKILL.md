@@ -64,8 +64,8 @@ Record inputs, parameters, and engine revisions. `grade ihc` requires the separa
 Computation is local; AI-client data transfers depend on client settings.
 
 
-运行前区分 `doctor.ready` 与 `verified`；需要本仓库已验证修订时运行 `wisplab doctor --strict`。新装可用 `node scripts/setup-engines.mjs --root NEW_DIRECTORY --config NEW_FILE`，不覆盖已有目录/配置；路径以实际 CLI 安装位置为准。
-Distinguish `doctor.ready` from `verified`; use `wisplab doctor --strict` for this bridge's verified revisions. New installs can use `node scripts/setup-engines.mjs --root NEW_DIRECTORY --config NEW_FILE`, which refuses existing paths; resolve the script from the installed CLI location.
+运行前区分 `doctor.ready` 与 `verified`；需要本仓库已验证修订时运行 `wisplab doctor --strict`。统一仓安装使用 `npm run setup`。独立引擎复现可用 `node scripts/setup-engines.mjs --root NEW_DIRECTORY --config NEW_FILE`，不覆盖已有目录/配置；路径以实际 CLI 安装位置为准。
+Distinguish `doctor.ready` from `verified`; use `wisplab doctor --strict` for this bridge's verified revisions. Use `npm run setup` for bundled engines. For external checkouts use `node scripts/setup-engines.mjs --root NEW_DIRECTORY --config NEW_FILE`, which refuses existing paths; resolve the script from the installed CLI location.
 
 CLI `--timeout-ms` 与 `--file-timeout-ms`（MCP `runtime.timeoutMs` / `fileTimeoutMs`）默认分别为 300000 / 120000 ms。单图超时保留先前结果并重启处理后续图；整批超时或取消结束未完成项。CLI 进度在 stderr；MCP 仅对提供进度 token 的请求发送，取消后不再返回该请求结果。MCP 的 `reviewDir` 必须通过 `allowPaths` 检查。详见[运行控制](../../docs/runtime-controls.md)。
 CLI `--timeout-ms` and `--file-timeout-ms` (MCP `runtime.timeoutMs` / `fileTimeoutMs`) default to 300000 / 120000 ms. An image timeout preserves completed results and restarts for later images; batch timeout/cancellation ends unfinished work. CLI progress uses stderr; MCP progress requires a token and cancelled requests send no further result. MCP `reviewDir` must pass `allowPaths`. See [runtime controls](../../docs/runtime-controls.md).

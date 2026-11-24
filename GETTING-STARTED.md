@@ -6,25 +6,21 @@
 
 如果已有 IHC 分析 JSON 和参考 JSON，只需本仓库代码与 Node.js，即可运行 `node cli.mjs ihc-validate result.json reference.json`。该离线比较不读取引擎配置，也不启动分析引擎或浏览器。
 
-## 1. 准备环境
+## 1. 安装四个应用
 
-需要 Git、Node.js ≥ 22.12、npm，以及 macOS、Linux 或 Windows WSL 环境；具体引擎的要求以各自仓库为准。先运行 `node --version`。以下脚本读取 `engines.lock.json`，安装固定引擎修订、依赖与 Chromium；`--plan` 仅显示计划。目标目录和配置必须是新路径。命令中的数据路径和样本名需替换为自己的值。
+准备 Git、Node.js ≥ 22.12 和 npm。CLI 支持 macOS、Linux 和 Windows WSL。进入仓库后，使用一条命令为四个应用安装锁定依赖和 Chromium。Linux 如缺少浏览器系统库，请按 Playwright 提示安装。
 
 ```sh
 git clone https://github.com/Gaoyuan-0423/wisplab-cli.git
 cd wisplab-cli
-node scripts/setup-engines.mjs --root ../wisplab-verified-engines --config ./wisplab.config.json --plan
-node scripts/setup-engines.mjs --root ../wisplab-verified-engines --config ./wisplab.config.json
+npm run setup
 node cli.mjs doctor --strict
+node cli.mjs blotlens
 ```
 
-请安装开发依赖：WB/qPCR 需要其仓库内的 `tsx`，IHC/IF 需要 Vite、Playwright 与对应版本的 Chromium。不要使用 `--omit=dev`。如果所选旧引擎版本没有锁文件或缺少上述依赖，按该引擎的安装说明处理；`doctor` 会列出仍缺少的项目。Linux 上 Chromium 可能还需要系统依赖，按 Playwright 的安装提示补齐。
+## 2. 配置数据路径和外部引擎
 
-桥接包本身无需 `npm install`；安装与升级依赖会访问软件源，分析过程使用本地引擎。
-
-## 2. 配置路径并检查
-
-安装脚本已创建配置，不要用示例文件覆盖它；编辑其中的 `allowPaths` 以匹配实际数据和复核输出目录。若复用已有引擎，可从 `wisplab.config.example.json` 创建一个新的配置文件。以下示例适用于同级引擎仓库和 `~/data`：
+默认配置直接使用本仓的三个引擎。需要调整 MCP 数据目录或复用独立仓时，可按下例创建本机的 `wisplab.config.json`。使用仓内引擎时请从 `wisplab.config.bundled.json` 复制配置再调整。
 
 ```json
 {
@@ -47,7 +43,7 @@ node cli.mjs --version
 npm link                       # 可选：之后可用 wisplab 代替 node cli.mjs
 ```
 
-`doctor.ready` 表示检查的依赖存在；`verified` 还要求三个引擎为干净、匹配锁文件的仓库修订。`doctor --strict` 未验证时返回非零，报告包含当前/期望 revision、`matchesLock` 和 `dirty`。它不自动更新或证明科学准确性，详见[固定版本安装](docs/verified-engines.md)。使用多套配置时可传 `--config /path/to/config.json`，或设置 `WISPLAB_CONFIG`；显式路径优先。
+`doctor.ready` 表示检查的依赖存在；`verified` 还要求各引擎目录干净且匹配锁定的仓内目录树或外部仓提交。`doctor --strict` 未验证时返回非零，报告包含当前/期望 revision、`matchesLock` 和 `dirty`。它不自动更新或证明科学准确性，详见[固定版本安装](docs/verified-engines.md)。使用多套配置时可传 `--config /path/to/config.json`，或设置 `WISPLAB_CONFIG`；显式路径优先。
 
 ## 3. 先跑一次明确的分析
 
