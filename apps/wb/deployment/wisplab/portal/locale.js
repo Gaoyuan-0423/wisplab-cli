@@ -29,10 +29,6 @@ export const messages = {
     zh: "分析工具",
     en: "Tools",
   },
-  "nav.updates": {
-    zh: "更新记录",
-    en: "Updates",
-  },
   "nav.about": {
     zh: "关于工作台",
     en: "About",
@@ -199,82 +195,6 @@ export const messages = {
   "quick.open": {
     zh: "打开单条带识别",
     en: "Analyze a single strip",
-  },
-  "updates.title": {
-    zh: "最近更新",
-    en: "Recent updates",
-  },
-  "updates.description": {
-    zh: "功能改进与修复，按发布时间记录。",
-    en: "Features and fixes, organized by release date.",
-  },
-  "updates.all": {
-    zh: "完整发布记录",
-    en: "All releases",
-  },
-  "updates.latest": {
-    zh: "最新记录",
-    en: "Latest update",
-  },
-  "updates.accountfree.title": {
-    zh: "免账号使用与 WB 简易模式 TIFF",
-    en: "Account-free tools and TIFF in simple WB modes",
-  },
-  "updates.accountfree.description": {
-    zh: "首页与三个工具移除登录、注册入口，保留本地项目导入、导出。WB 单条带和快速分析支持 8/16 位 TIFF，测量保留原始位深；图像预览与定量分开处理。",
-    en: "The homepage and all three tools remove sign-in and registration while keeping local project import/export. Single-strip and quick WB modes accept 8/16-bit TIFF with source-depth measurements independent of the preview.",
-  },
-  "updates.publication.title": {
-    zh: "WB 图版与原始数据导出",
-    en: "WB figures and source-data export",
-  },
-  "updates.publication.description": {
-    zh: "WB 新增条带图版排版与原始数据文档，可将原图、项目、分析结果及溯源记录打包导出。",
-    en: "Arrange WB strips into figures, create source-data documents, and export originals, projects, analysis results and provenance together.",
-  },
-  "updates.platform.title": {
-    zh: "统一账号与项目保存",
-    en: "Optional accounts and local projects across WispLab",
-  },
-  "updates.platform.description": {
-    zh: "当时版本加入可选账号与本地项目管理，实验数据不上传或云同步。账号入口已在 2026-10-25 的免账号版本移除，本地项目功能继续保留。",
-    en: "That release introduced optional accounts and local project management without experimental uploads or cloud sync. The account-free release of October 25, 2026 removes account controls and retains local projects.",
-  },
-  "updates.wb.title": {
-    zh: "单条带校直、曝光挑选与识别引导",
-    en: "Strip straightening, exposure selection, and recognition guidance",
-  },
-  "updates.wb.description": {
-    zh: "WB 单条带新增两点旋正、弯曲校直、直接圈选一排、多曝光切换，以及不改变定量的亮度／对比度预览。原图项目分析明确显示待识别、候选与失败原因。",
-    en: "Single-strip WB adds two-point straightening, curve correction, row selection, exposure switching, and brightness/contrast previews that leave measurements unchanged. Original-image projects now show pending recognition, candidates, and reasons for failure.",
-  },
-  "updates.portal.title": {
-    zh: "更新记录上线，补齐 IHC 双语",
-    en: "Release notes and IHC translation fixes",
-  },
-  "updates.portal.description": {
-    zh: "首页新增中英文更新记录与版本链接；补齐 IHC 新增提示和导出表头的英文，并将 DAB 阈值提示限定于 IHC 染色。",
-    en: "The homepage now has bilingual release notes and version links. Added missing English IHC notices and export headers, and limited the DAB threshold notice to IHC staining.",
-  },
-  "updates.analysis.title": {
-    zh: "IHC 评分与 PCR 统计更新",
-    en: "IHC scoring and PCR statistics",
-  },
-  "updates.analysis.ihc": {
-    zh: "IHC 新增基于分割细胞核强度的 H-score（0–300），支持整图、ROI 及结果导出；新增 DAB 阈值提示。",
-    en: "IHC adds an H-score (0–300) based on segmented nuclear intensity, with whole-image, ROI and export support, plus a DAB threshold notice.",
-  },
-  "updates.analysis.pcr": {
-    zh: "修复 PCR Dunnett 多重比较中，部分条件下校正 P 值偏小的数值计算问题。",
-    en: "Fixed a numerical issue that could underestimate adjusted P values in PCR Dunnett multiple comparisons under some conditions.",
-  },
-  "updates.language.title": {
-    zh: "首页与三个工具支持中英文",
-    en: "Chinese and English across WispLab",
-  },
-  "updates.language.description": {
-    zh: "提供「中文 / EN」切换并记住选择；首页完整介绍 IHC、H&E／Masson 染色与 IF 分析入口。",
-    en: "The homepage and all three tools remember your language choice. The homepage now introduces IHC, H&E and Masson staining, and IF analysis.",
   },
   "about.eyebrow": {
     zh: "少些操作，多些专注",

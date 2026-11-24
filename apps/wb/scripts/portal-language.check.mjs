@@ -47,3 +47,14 @@ test("every explicit portal text and accessibility label has both language entri
   }
   assert.deepEqual([...used].sort(), Object.keys(messages).sort());
 });
+
+test("portal links within the homepage point to existing sections", () => {
+  const html = readFileSync(
+    new URL("../deployment/wisplab/portal/index.html", import.meta.url),
+    "utf8",
+  );
+  const ids = new Set([...html.matchAll(/\bid="([^"]+)"/g)].map((match) => match[1]));
+  for (const [, hash] of html.matchAll(/\bhref="#([^"]+)"/g)) {
+    assert.ok(ids.has(hash), `Missing homepage anchor: #${hash}`);
+  }
+});
