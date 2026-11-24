@@ -25,5 +25,5 @@
 
 - 新增界面文案/导出字段**中英同步**（`src/i18n/`），Methods 文本（`methods.ts` zh/en 两段）与实际参数逐项一致。
 - LICENSE 已定 MIT，README 与之保持一致。
-- 发布走 blot-workbench 仓库的统一发布器（`release.py`），需所有者确认；本仓库 main 推送只触发 CI。
+- 统一仓使用根目录的 CI。网页与桌面发布由 `apps/wb/deployment/wisplab/` 和 `apps/wb/desktop/` 管理，正式切换与回滚按统一仓运维文档执行。
 - `npm test`（含算法手算对照）与 `npx tsc -b` 必须全绿；E2E 走 CI。

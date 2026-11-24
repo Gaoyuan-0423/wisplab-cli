@@ -31,5 +31,5 @@ const out = analyzeDeltaDeltaCt(rows, {
 - 界面文案/导出**中英同步**（`src/i18n/`）。
 - 新解析格式先在 `tests/fixtures/real/` 放真实样本并登记 PROVENANCE.md，再写解析回归。
 - LICENSE 为 MIT；投稿归档时核对依赖许可。
-- 发布走 blot-workbench 仓库的统一发布器，需所有者确认；本仓库 main 推送只触发 CI。
+- 统一仓使用根目录的 CI。网页与桌面发布由 `apps/wb/deployment/wisplab/` 和 `apps/wb/desktop/` 管理，正式切换与回滚按统一仓运维文档执行。
 - `npm test`（148+ 用例）必须全绿。

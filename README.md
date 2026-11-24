@@ -55,12 +55,14 @@ wisplab ihc-validate result.json reference.json
 
 `--strip y,h,x0,x1` 使用原图像素坐标，`h` 为高度，`x1` 为右边界；选区应保留背景余量并排除 marker、文字和其他面板。`--control` 对 WB 是从 1 开始的泳道号，对 qPCR 是逗号分隔的样本名。逐文件分析错误会使 CLI 退出码为 1，MCP 返回 `isError: true`，同时保留 JSON 结果。即使执行成功，也应检查 `warnings`。
 
+[单仓迁移数值回归](docs/migration-regression.md)
+
 ## 打开工作台
 
 在仓库根目录运行下列任一命令，按终端显示的本机地址打开。
 
 ```sh
-npm --prefix apps/wb run dev
+npm --prefix apps/wb run local
 npm --prefix apps/pathology run dev
 npm --prefix apps/pcr run dev
 node cli.mjs blotlens

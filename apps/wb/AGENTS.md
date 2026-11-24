@@ -27,5 +27,5 @@
 ## 其他纪律
 
 - 界面文案**中英双语**同时补（`src/i18n.ts`、`src/messages.ts`），切换语言不得重置分析。
-- 发布只走 `deployment/wisplab/release.py publish`（tag 带 `wisplab-deploy-` 前缀），且需所有者确认；其他前缀的 Release 不影响线上。
+- 统一仓使用根目录的 CI。网页与桌面发布由 `apps/wb/deployment/wisplab/` 和 `apps/wb/desktop/` 管理，正式切换与回滚按统一仓运维文档执行。
 - java/ImageJ 相关脚本在无 GUI 会话会间歇挂起、ImageJ 访问 ~/Downloads 被 TCC 拦——IO 走 ASCII /tmp。

@@ -55,12 +55,14 @@ For reproducibility with external engine checkouts, see [verified engines](docs/
 
 `--strip y,h,x0,x1` uses original image pixels: `h` is the height and `x1` the right boundary. Include background margins and exclude markers, labels, and other panels. For WB, `--control` is a lane number starting at 1; for qPCR, it is a comma-separated list of sample names. Per-file analysis errors set CLI exit code 1 or MCP `isError: true`, while retaining JSON results. Inspect `warnings` even after successful execution.
 
+[Monorepo numerical regression results](docs/migration-regression.md)
+
 ## Open a workbench
 
 From the repository root, run one command and open the local address printed by the application.
 
 ```sh
-npm --prefix apps/wb run dev
+npm --prefix apps/wb run local
 npm --prefix apps/pathology run dev
 npm --prefix apps/pcr run dev
 node cli.mjs blotlens

@@ -8,7 +8,7 @@
       "bundled": {
         "path": "apps/wb",
         "upstreamRevision": "5615e0bd3e8550e7886ef9798cb272faff231a7d",
-        "tree": "41ccfc192fa37c90bfd9f6f62eea9046e8c9c011"
+        "tree": "98994916b41837d04e7e35f864d8c2f2d6250f41"
       }
     },
     "ihc": {
@@ -17,7 +17,7 @@
       "bundled": {
         "path": "apps/pathology",
         "upstreamRevision": "79df1346fe222935e79507f8103fc99d028b859e",
-        "tree": "7208766adb71cd3baca18baa815057837ff297f6"
+        "tree": "556a00d0d7b845f4489000aae09d24a91ad1672b"
       }
     },
     "pcr": {
@@ -26,7 +26,7 @@
       "bundled": {
         "path": "apps/pcr",
         "upstreamRevision": "d4e8291749c8459dff5d9351c9e7dcbadea564a2",
-        "tree": "1bc1185ef8839b36c6a037b55f7ba7e61b230fa2"
+        "tree": "082397fd62f5a01824fff624a55d3efc3c1954c0"
       }
     }
   }
