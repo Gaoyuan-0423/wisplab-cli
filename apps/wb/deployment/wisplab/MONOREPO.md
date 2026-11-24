@@ -64,6 +64,6 @@ sudo /usr/bin/python3 -I /srv/wisplab/bin/update.py --repository Gaoyuan-0423/bl
 
 ### 旧 Pages 和 30 天导出窗口
 
-旧站点继续使用原项目路径和原浏览器存储。将 `legacy-pages-workflow.yml` 作为 `.github/workflows/wisplab-transition.yml` 安装到三个旧仓，各自明确触发一次。输入经批准的单仓工具提交、冻结旧版的标签及同一个**实际切换 UTC 时刻**。窗口内完整保留旧版应用和资产，首页显示导出提示。30 天后再次打开旧入口会自动跳转并保留原查询串和 hash。届时再运行同一个工作流，将页面替换为持久跳转页和 404 页面。归档旧仓前核对原 URL 在 GitHub Pages 当前设置下仍可访问，保留历史标签与 Issues。回退时用旧 Pages 工作流或保存的静态发布包恢复原站，旧域名在窗口期仍能导出用户的数据。
+旧站点继续使用原项目路径和原浏览器存储。将 `legacy-pages-workflow.yml` 作为 `.github/workflows/wisplab-transition.yml` 安装到三个旧仓，各自明确触发一次。输入经批准的单仓工具提交、冻结旧版的标签及同一个**实际切换 UTC 时刻**。窗口内保留旧版应用和资产，首页显示导出提示。失效的嵌套书签会显示返回旧站导出的链接。跳转脚本由原项目的同源路径提供，兼容 WB 的内容安全策略。窗口截止后再次打开首页或失效书签，将前往新站根入口并保留原查询串和 hash。已经打开的导出会话可以继续完成。届时再运行同一个工作流，将页面替换为持久跳转页和 404 页面。归档旧仓前核对原 URL 在 GitHub Pages 当前设置下仍可访问，保留历史标签与 Issues。回退时用旧 Pages 工作流或保存的静态发布包恢复原站，旧域名在窗口期仍能导出用户的数据。
 
 预演用 `legacy_pages.py --previous <旧包目录> --site wb --cutover <带时区的时刻> --at <模拟时刻> --output <新目录>`。分别测试第 0 天、第 29 天与第 30 天，以及 `pathology`、`pcr` 两个入口。
