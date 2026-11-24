@@ -31,7 +31,7 @@ export function repositoryScope(root, path) {
 export function checkEngineRevision(path, lock) {
   const expectedRevision = typeof lock === 'string' ? lock : lock.revision;
   const git = args => {
-    const r = spawnSync('git', ['--no-optional-locks', '-C', path, ...args], { encoding: 'utf8', timeout: 10000 });
+    const r = spawnSync('git', ['-C', path, '--no-optional-locks', ...args], { encoding: 'utf8', timeout: 10000 });
     if (r.error || r.status !== 0) throw new Error(r.error?.message ?? r.stderr.trim());
     return r.stdout.trim();
   };

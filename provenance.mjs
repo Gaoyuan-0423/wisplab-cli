@@ -27,7 +27,7 @@ function fingerprint(path) {
 
 export function snapshotRepository(path) {
   const git = (...args) => {
-    const r = spawnSync('git', ['--no-optional-locks', '-C', path, ...args], { encoding: 'utf8', timeout: 10000, maxBuffer: 8 * 1024 * 1024 });
+    const r = spawnSync('git', ['-C', path, '--no-optional-locks', ...args], { encoding: 'utf8', timeout: 10000, maxBuffer: 8 * 1024 * 1024 });
     if (r.status !== 0 || r.error) throw new Error('Git metadata unavailable');
     return r.stdout;
   };
@@ -121,7 +121,7 @@ async function fingerprintAsync(path, signal) {
 async function snapshotRepositoryAsync(path, signal) {
   checkCancelled(signal);
   const git = (...args) => new Promise((resolve, reject) => {
-    execFile('git', ['--no-optional-locks', '-C', path, ...args], { encoding: 'utf8', timeout: 10000, maxBuffer: 8 * 1024 * 1024, signal, killSignal: 'SIGKILL' },
+    execFile('git', ['-C', path, '--no-optional-locks', ...args], { encoding: 'utf8', timeout: 10000, maxBuffer: 8 * 1024 * 1024, signal, killSignal: 'SIGKILL' },
       (error, stdout) => error ? reject(error) : resolve(stdout));
   });
   try {
