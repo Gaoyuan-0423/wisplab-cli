@@ -1,0 +1,175 @@
+name: Analysis apps and release inputs
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: apps-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  app:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [wb, pathology, pcr, blotlens]
+    defaults:
+      run:
+        working-directory: apps/${{ matrix.app }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/*/package-lock.json
+      - run: npm ci
+      - if: matrix.app == 'wb'
+        run: |
+          npm ci --prefix ../blotlens
+          python3 -m unittest discover -s deployment/wisplab -p 'test_*.py' -q
+          python3 -m unittest discover -s desktop/test -p 'test_*.py' -q
+          node scripts/sync-platform.mjs --check --target ../pathology --target ../pcr
+          node --test scripts/*.check.mjs
+      - if: matrix.app == 'pcr' || matrix.app == 'pathology'
+        run: npm run lint
+      - run: npm test
+      - if: matrix.app == 'blotlens'
+        run: npm run evaluate
+      - run: npm run build
+      - if: matrix.app == 'wb'
+        run: node scripts/third-party-notices.mjs --output dist/THIRD_PARTY_NOTICES.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-dist-${{ matrix.app }}
+          path: apps/${{ matrix.app }}/dist/
+          if-no-files-found: error
+          retention-days: 30
+      - if: matrix.app == 'blotlens'
+        run: node scripts/package-release.mjs
+      - if: matrix.app == 'blotlens'
+        uses: actions/upload-artifact@v4
+        with:
+          name: blotlens-linux
+          path: apps/blotlens/.release/blotlens-linux.tar.gz
+          if-no-files-found: error
+          retention-days: 30
+  browser:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [pcr, pathology, blotlens]
+    defaults:
+      run:
+        working-directory: apps/${{ matrix.app }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci
+      - run: npx playwright install chromium --with-deps
+      - if: matrix.app == 'blotlens'
+        run: npm run build
+      - run: npx playwright test
+      - if: matrix.app == 'pathology'
+        run: npm run build && npx playwright test --config playwright.production.config.ts
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-${{ matrix.app }}
+          path: apps/${{ matrix.app }}/test-results/
+  cloud:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python3 -m unittest discover -s apps/wb/services/cloud -p 'test_*.py' -q
+  wb-browser:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+        channel: [chrome, msedge]
+    defaults:
+      run:
+        working-directory: apps/wb
+    env:
+      CI: true
+      BROWSER_CHANNEL: ${{ matrix.channel }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci
+      - run: npm ci --prefix ../blotlens
+      - run: npx playwright install ${{ matrix.channel }}
+      - run: npm run build
+      - run: npm run test:e2e
+      - run: npm run test:vision:e2e
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wb-browser-${{ matrix.os }}-${{ matrix.channel }}
+          path: |
+            apps/wb/test-results/
+            apps/wb/test-results-vision/
+  stage-desktop-smoke:
+    needs: app
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-dist-wb
+          path: apps/wb/dist/
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-dist-pathology
+          path: apps/pathology/dist/
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-dist-pcr
+          path: apps/pcr/dist/
+      - run: python3 apps/wb/desktop/scripts/stage.py local
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-smoke-input
+          path: apps/wb/desktop/resources/
+          if-no-files-found: error
+          retention-days: 7
+  desktop-smoke:
+    needs: stage-desktop-smoke
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    defaults:
+      run:
+        working-directory: apps/wb/desktop
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@v4
+        with:
+          name: desktop-smoke-input
+          path: apps/wb/desktop/resources/
+      - run: npm ci
+      - run: npm test
+      - run: npm run package:dir
+      - run: npm run test:packaged

@@ -23,7 +23,7 @@ export function expandPath(value, base = process.cwd()) {
 
 export function loadConfig(configPath) {
   const explicit = configPath ?? process.env.WISPLAB_CONFIG;
-  const candidates = explicit !== undefined ? [expandPath(explicit)] : [join(process.cwd(), "wisplab.config.json"), join(CLI_DIR, "wisplab.config.json")];
+  const candidates = explicit !== undefined ? [expandPath(explicit)] : [join(process.cwd(), "wisplab.config.json"), join(CLI_DIR, "wisplab.config.json"), join(CLI_DIR, "wisplab.config.bundled.json")];
   const path = candidates.find(existsSync);
   if (!path) throw new Error(`wisplab.config.json 未找到 / Config not found: ${candidates.join(", ")}`);
   const cfg = JSON.parse(readFileSync(path, "utf8"));
@@ -377,7 +377,7 @@ export function doctor({ strict = false } = {}) {
         if (!existsSync(browser)) missing.push("Playwright Chromium (run npx playwright install chromium in pathology-workbench)");
       } catch { missing.push("playwright package"); }
     }
-    return [name, { path: path ?? null, ready: missing.length === 0, missing, ...checkEngineRevision(path ?? "", lock.engines[name].revision), ...(browser ? { browser } : {}) }];
+    return [name, { path: path ?? null, ready: missing.length === 0, missing, ...checkEngineRevision(path ?? "", lock.engines[name]), ...(browser ? { browser } : {}) }];
   }));
   const ready = Object.values(engines).every(e => e.ready);
   const verified = ready && Object.values(engines).every(e => e.verified);

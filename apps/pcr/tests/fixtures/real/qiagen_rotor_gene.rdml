@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rdml version="1.3">
+  <documentation>
+    <software>Qiagen Rotor-Gene Q</software>
+  </documentation>
+  <target id="WT"><dyeId>FAM</dyeId></target>
+  <target id="MT"><dyeId>VIC</dyeId></target>
+  <experiment id="exp-1">
+    <run id="run-1">
+      <react id="A1">
+        <sample id="RotorGene_Sample"/>
+        <data><tar id="WT"/><adp cyc="1"><fluor>120</fluor></adp></data>
+        <data><tar id="MT"/><adp cyc="1"><fluor>70</fluor></adp></data>
+      </react>
+    </run>
+  </experiment>
+</rdml>

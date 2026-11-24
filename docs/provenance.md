@@ -14,6 +14,10 @@ wisplab pcr plate.csv --ref GAPDH --control C1 > result.json
 - 参数及逐文件解析后的内参、对照、效率、QC/排除行，或病理阈值/分割设置。 / Requested/defaulted options and per-file resolved references, controls, efficiencies, QC/exclusions or pathology settings.
 - Node.js、操作系统和架构；检查失败的说明。 / Node.js, OS, architecture and verification warnings.
 
+仓内模块的 `revision` 是主仓提交，`modulePath` 标识当前应用，`sourceSha256` 和 `dirty` 只覆盖相应目录。桥接层单独计算仓内应用之外的文件指纹。
+
+For bundled engines, `revision` identifies the monorepo commit, `modulePath` selects the app, and `sourceSha256` and `dirty` describe that module. The CLI fingerprint covers its own files outside the bundled apps.
+
 发生分析错误时，CLI 仍输出带 `error` 和追溯记录的 JSON 并返回非零退出码；MCP 返回相同记录及 `isError: true`。参数校验或配置解析失败发生在分析开始前，可能没有追溯记录。
 
 Analysis failures retain an error/provenance JSON response with a nonzero CLI exit code or MCP `isError: true`. Invalid arguments or configuration errors before analysis starts may have no manifest.

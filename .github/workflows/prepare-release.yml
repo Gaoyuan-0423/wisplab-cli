@@ -1,0 +1,61 @@
+name: Prepare and rehearse WispLab release
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Candidate version
+        required: true
+        type: string
+      previous_repo:
+        description: Previous official web release repository
+        type: choice
+        required: true
+        options:
+          - Gaoyuan-0423/blot-workbench
+          - Gaoyuan-0423/wisplab-cli
+      previous_tag:
+        description: Previous stable wisplab-deploy-* tag
+        required: true
+        type: string
+      previous_blotlens_tag:
+        description: Frozen standalone BlotLens tag when using the legacy split release
+        type: string
+        default: v0.2.1
+permissions:
+  actions: read
+  contents: read
+jobs:
+  rehearse:
+    if: github.repository == 'Gaoyuan-0423/wisplab-cli' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_VERSION: ${{ inputs.version }}
+      PREVIOUS_REPO: ${{ inputs.previous_repo }}
+      PREVIOUS_TAG: ${{ inputs.previous_tag }}
+      OLD_SERVICE_TAG: ${{ inputs.previous_blotlens_tag }}
+      TOOL: apps/wb/deployment/wisplab/suite_release.py
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: python3 "$TOOL" prepare --sha "$GITHUB_SHA" --version "$RELEASE_VERSION" --output "$RUNNER_TEMP/candidate"
+      - name: Restore previous version in isolated staging
+        shell: bash
+        run: |
+          [[ "$PREVIOUS_TAG" == wisplab-deploy-* ]]
+          gh release download "$PREVIOUS_TAG" --repo "$PREVIOUS_REPO" --dir "$RUNNER_TEMP/previous"
+          extra=()
+          if [[ "$PREVIOUS_REPO" == "Gaoyuan-0423/blot-workbench" ]]; then
+            [[ "$OLD_SERVICE_TAG" == v* ]]
+            gh release download "$OLD_SERVICE_TAG" --repo Gaoyuan-0423/blotlens --dir "$RUNNER_TEMP/service"
+            extra=(--previous-service "$RUNNER_TEMP/service")
+          fi
+          python3 "$TOOL" rehearse --previous "$RUNNER_TEMP/previous" --candidate "$RUNNER_TEMP/candidate" --output "$RUNNER_TEMP/rehearsal" "${extra[@]}"
+          cp "$RUNNER_TEMP/rehearsal/recovery.json" "$RUNNER_TEMP/candidate/"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: verified-candidate
+          path: ${{ runner.temp }}/candidate/
+          if-no-files-found: error
+          retention-days: 30

@@ -22,6 +22,5 @@ SOFTWARE.
 
 ---
 
-注意：本工具是 WispLab 三个引擎仓库（blot-workbench / pathology-workbench /
-pcr-workbench）的无头调用桥，自身不含引擎代码；各引擎的许可以各自仓库为准。
-输入的实验图像与数据仅在本机处理；使用本工具不构成医学诊断用途的授权。
+Bundled applications retain their individual license terms and third-party notices.
+各应用保留自身的许可条款、示例出处和第三方声明，详见 apps/ 下对应目录。

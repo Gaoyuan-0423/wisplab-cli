@@ -1,5 +1,9 @@
 # 已验证引擎 / Verified engines
 
+For a monorepo checkout, run `npm run setup` and `node cli.mjs doctor --strict`. Bundled modules are checked against their locked Git trees. Bundled entries report the suite commit in `revision`, the pinned tree in `expectedTree` and `null` in `expectedRevision`. Standalone engines report their original locked commit in `expectedRevision`. 更新仓内应用后，经回归验收，将应用改动暂存，以 `git write-tree --prefix=apps/wb/`（或对应子目录）取得新树哈希并同步更新锁。提交后复核严格诊断。下文为独立仓复现流程。
+
+
+
 普通 `doctor` 区分依赖可用性 `ready` 与代码版本验证 `verified`。每个引擎报告当前及期望修订号、`matchesLock` 和脏状态；依赖可用且三个引擎均为干净的锁定修订时，整体 `verified` 才为 true。`doctor --strict` 在未验证时返回非零退出码。此检查不代替数值基准，也不检查被 Git 忽略的依赖内容。
 
 Regular `doctor` separates dependency readiness from revision verification. `doctor --strict` requires installed dependencies and all three clean, exact revisions from `engines.lock.json`. This does not independently validate numerical accuracy or fingerprint ignored dependency contents.

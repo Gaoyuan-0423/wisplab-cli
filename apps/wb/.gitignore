@@ -1,0 +1,16 @@
+node_modules/
+dist/
+/public/blotlens/
+.DS_Store
+*.local
+.env*
+test-results/
+playwright-report/
+coverage/
+.release/
+private-analysis/
+
+*.tsbuildinfo
+
+playwright-report-vision/
+test-results-vision/

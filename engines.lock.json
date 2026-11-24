@@ -4,15 +4,30 @@
   "engines": {
     "wb": {
       "repository": "Gaoyuan-0423/blot-workbench",
-      "revision": "fd867d89fab3602ad24a2d5cb973e54577595b4e"
+      "revision": "fd867d89fab3602ad24a2d5cb973e54577595b4e",
+      "bundled": {
+        "path": "apps/wb",
+        "upstreamRevision": "5615e0bd3e8550e7886ef9798cb272faff231a7d",
+        "tree": "99cc3c8692db0cd3cf0aec5c2b2e9139f55cb4cb"
+      }
     },
     "ihc": {
       "repository": "Gaoyuan-0423/pathology-workbench",
-      "revision": "10e74654979dca10c6b6c2d60d4b34316f21011e"
+      "revision": "10e74654979dca10c6b6c2d60d4b34316f21011e",
+      "bundled": {
+        "path": "apps/pathology",
+        "upstreamRevision": "79df1346fe222935e79507f8103fc99d028b859e",
+        "tree": "556a00d0d7b845f4489000aae09d24a91ad1672b"
+      }
     },
     "pcr": {
       "repository": "Gaoyuan-0423/pcr-workbench",
-      "revision": "d78857e5d182ec75a4c4e3971b61da51174c6940"
+      "revision": "d78857e5d182ec75a4c4e3971b61da51174c6940",
+      "bundled": {
+        "path": "apps/pcr",
+        "upstreamRevision": "d4e8291749c8459dff5d9351c9e7dcbadea564a2",
+        "tree": "082397fd62f5a01824fff624a55d3efc3c1954c0"
+      }
     }
   }
 }
