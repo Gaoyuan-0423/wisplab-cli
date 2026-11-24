@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rdml version="1.3">
+  <documentation>
+    <software>Q-Prism Synthetic RDML</software>
+  </documentation>
+  <target id="WT">
+    <dyeId>FAM</dyeId>
+  </target>
+  <target id="MT">
+    <dyeId>VIC</dyeId>
+  </target>
+  <experiment id="exp-1">
+    <run id="run-1">
+      <react id="A1">
+        <sample id="Sample_01"/>
+        <data>
+          <tar id="WT"/>
+          <adp cyc="1"><fluor>100.0</fluor></adp>
+          <adp cyc="2"><fluor>130.0</fluor></adp>
+          <adp cyc="3"><fluor>190.0</fluor></adp>
+        </data>
+        <data>
+          <tar id="MT"/>
+          <adp cyc="1"><fluor>80.0</fluor></adp>
+          <adp cyc="2"><fluor>95.0</fluor></adp>
+          <adp cyc="3"><fluor>115.0</fluor></adp>
+        </data>
+      </react>
+      <react id="A2">
+        <sample id="Sample_02"/>
+        <data>
+          <tar id="WT"/>
+          <adp cyc="1"><fluor>105.0</fluor></adp>
+          <adp cyc="2"><fluor>150.0</fluor></adp>
+          <adp cyc="3"><fluor>220.0</fluor></adp>
+        </data>
+        <data>
+          <tar id="MT"/>
+          <adp cyc="1"><fluor>78.0</fluor></adp>
+          <adp cyc="2"><fluor>88.0</fluor></adp>
+          <adp cyc="3"><fluor>103.0</fluor></adp>
+        </data>
+      </react>
+    </run>
+  </experiment>
+</rdml>
