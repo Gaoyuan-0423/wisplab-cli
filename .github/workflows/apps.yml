@@ -75,6 +75,8 @@ jobs:
           node-version: 24
       - run: npm ci
       - run: npx playwright install chromium --with-deps
+      - if: matrix.app == 'blotlens'
+        run: npm run build
       - run: npx playwright test
       - if: matrix.app == 'pathology'
         run: npm run build && npx playwright test --config playwright.production.config.ts
