@@ -20,7 +20,7 @@ const out = analyzeDeltaDeltaCt(rows, {
 ```
 
 - `efficiencies` 任一参与基因非 100 自动切换效率校正：各内参先使用自身效率计算相对量，再取几何均值作分母；不能先平均内参效率。单内参即 Pfaffl，全部效率为 100 时保留 Livak 路径。One reference is sufficient; multiple references remain optional.
-- 统计：≥3 处理泳道走 ANOVA+Dunnett，否则 Welch t；统计一律在个体 ΔCt 值上做。
+- 统计：默认仅描述。显式 `experimentalDesign` 确认独立单位、组别、对照组后，技术孔先按单位汇总，每单位贡献一个 ΔCt；2 个总组走 Welch，≥3 个总组（包含对照）走 ANOVA+Dunnett。样本行不放 p 值，组级输出 `nBio` 与 `nTech`；配对/重复测量暂不支持推断，不能回落为独立检验。缺失内参或独立单位不足时不输出相应 p 值。
 
 ## ⚠ stats.ts Dunnett 求积——不要回退
 

@@ -101,12 +101,16 @@ describe('ΔΔCt 引擎（手算对照）', () => {
     expect(t.fcValues).toHaveLength(3);
     expect(t.fcValues[0]).toBeCloseTo(Math.pow(2, 16 / 3 - 3), 10);
   });
-  it('对照组无统计，处理组跑 Welch t（对照组 ΔCt [5,5,6] 有方差 → p 显著）', () => {
+  it('技术复孔不能在未确认设计时生成生物学 p 值', () => {
     const ctrl = out.results.find((r) => r.isControl)!;
     const t = out.results.find((r) => !r.isControl)!;
     expect(ctrl.pValue).toBeNull();
-    expect(t.statMethod).toContain('Welch');
-    expect(t.pValue!).toBeLessThan(0.05);
+    expect(t.pValue).toBeNull();
+    expect(t.pAdjusted).toBeNull();
+    expect(t.nTech).toBe(3);
+    expect(t.nBio).toBeNull();
+    expect(out.designStatus).toBe('unconfirmed');
+    expect(out.groupResults).toEqual([]);
   });
 });
 
@@ -142,16 +146,12 @@ describe('ΔΔCt 引擎（多组 + 显著性）', () => {
     expect(out.results).toHaveLength(5);
     expect(out.results[0].isControl).toBe(true);
   });
-  it('多组时用 ANOVA + Dunnett 校正，处理组 p 显著', () => {
+  it('多个样本标签不自动证明生物学重复或授权 ANOVA', () => {
     const t1 = out.results.find((r) => r.sample === 'T1')!;
-    expect(t1.statMethod).toContain('ANOVA');
-    expect(t1.statMethod).toContain('Dunnett');
-    expect(t1.pValue!).toBeLessThan(0.001);
-    expect(t1.pAdjusted).not.toBeNull();
-    expect(t1.pAdjusted!).toBeLessThan(0.05);
-    expect(t1.pAdjusted!).toBeGreaterThanOrEqual(0);
-    // 显著性星号取自校正后 p
-    expect(t1.significance).toBe('***');
+    expect(t1.pValue).toBeNull();
+    expect(t1.pAdjusted).toBeNull();
+    expect(t1.significance).toBe('');
+    expect(out.groupResults).toEqual([]);
   });
   it('对照组无 Dunnett p', () => {
     const ctrl = out.results.find((r) => r.isControl)!;
@@ -189,8 +189,10 @@ describe('内参未检出场景（真实用户数据回归）', () => {
     qc: DEFAULT_QC,
   });
 
-  it('对照组内参未检出 → 无结果 + 两条明确告警', () => {
-    expect(out.results).toHaveLength(0);
+  it('对照组内参未检出 → 保留描述行、FC 为空并明确告警', () => {
+    expect(out.results).toHaveLength(2);
+    expect(out.results.every((r) => r.foldChange === null)).toBe(true);
+    expect(out.results.find((r) => r.isControl)?.deltaCt).toBeNull();
     expect(out.warnings.some((w) => w.includes('H22') || w.includes('未检出：') && w.includes('C1'))).toBe(true);
     expect(out.warnings.some((w) => w.includes('对照组样本（C1）的内参基因均未检出'))).toBe(true);
   });

@@ -1,5 +1,7 @@
+import { designMessages } from './design-messages';
 // Chinese source messages are stable translation keys. Values never replace user data.
 export const messages: Record<string, string> = {
+  ...designMessages,
   "打开此版本会替换当前工作内容，是否继续？": "Opening this version replaces the current workspace. Continue?",
   "已取消打开项目": "Opening the project was cancelled",
   "项目已恢复；历史缺失附件不会自动补全。": "Project restored; missing historical attachments are not recreated.",

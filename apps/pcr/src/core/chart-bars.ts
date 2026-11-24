@@ -1,6 +1,6 @@
 import { meanAndError, type ChartOptions } from './chart-options';
 import { formatP, significanceStars } from './stats';
-import type { SampleTargetResult } from './types';
+import type { ChartInput } from './chart-data';
 
 export interface ChartBar {
   sample: string;
@@ -23,9 +23,9 @@ export interface GeneSegment {
 
 /** 由结果行构建柱（支持误差棒类型、显著性模式与名称覆盖）。 */
 export function buildBarsForGene(
-  geneResults: SampleTargetResult[],
+  geneResults: ChartInput[],
   opts: ChartOptions,
-  colorFor: (r: SampleTargetResult) => string,
+  colorFor: (r: ChartInput) => string,
 ): ChartBar[] {
   return geneResults.map((r) => {
     const { mean, err } = meanAndError(r.fcValues, opts.errorBar);
@@ -33,7 +33,7 @@ export function buildBarsForGene(
     const stars = significanceStars(pAdj ?? r.pValue);
     return {
       sample: r.sample,
-      label: opts.labelOverrides[r.sample]?.trim() || r.sample,
+      label: opts.labelOverrides[r.sample]?.trim() || r.displayLabel || r.sample,
       target: r.target,
       value: mean,
       err,

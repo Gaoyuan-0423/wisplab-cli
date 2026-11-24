@@ -8,6 +8,7 @@ import { detectPlateLayout, parseWell } from '../core/plate';
 import type { AnalysisConfig, NtcReportEntry, QcFlags, QcSettings } from '../core/types';
 import PlateView, { type PlateCell, type PlateGrid } from './PlateView';
 import MeltTableCard from './MeltTableCard';
+import ExperimentalDesignPanel from './ExperimentalDesignPanel';
 
 interface Props {
   rows: AnalysisRow[];
@@ -162,12 +163,13 @@ export default function ConfigPanel({ rows, flags, config, onConfig, excluded, o
         </div>
       )}
 
+      <ExperimentalDesignPanel rows={rows} config={config} onConfig={onConfig} />
       <div className="card">
         <h2>{t("实验配置")}</h2>
         <div className="config-grid">
           <div>
             <div style={{ fontWeight: 600, marginBottom: 6 }}>
-              {t("对照组样本")}{' '}<span style={{ color: 'var(--danger)' }}>*</span>
+              {t('描述性归一化的对照样本')}{' '}<span style={{ color: 'var(--danger)' }}>*</span>
             </div>
             <div className="check-list">
               {samples.map((s) => (
@@ -175,6 +177,7 @@ export default function ConfigPanel({ rows, flags, config, onConfig, excluded, o
                   <input
                     type="checkbox"
                     checked={config.controlSamples.includes(s)}
+                    disabled={config.experimentalDesign?.confirmed === true}
                     onChange={(e) => {
                       const next = e.target.checked
                         ? [...config.controlSamples, s]

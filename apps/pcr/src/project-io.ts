@@ -28,7 +28,9 @@ export interface PcrProjectState {
 
 const matrixCheck = array(array(string, 10_000), 200_000);
 const mappingCheck = object(Object.fromEntries(COLUMN_KEYS.map((key) => [key, integer(-1, 9999)])));
-const configCheck = object({ controlSamples: array(string), refGenes: array(string), qc: object({ minCq: numeric, maxCq: numeric, absDev: numeric, zScore: numeric }) }, { efficiencies: record(number) });
+const designCheck = object({ kind: oneOf('independent', 'paired', 'repeated'), confirmed: bool,
+  controlGroup: string, assignments: array(object({ plate: string, sample: string, unitId: string, group: string }), 200_000) });
+const configCheck = object({ controlSamples: array(string), refGenes: array(string), qc: object({ minCq: numeric, maxCq: numeric, absDev: numeric, zScore: numeric }) }, { efficiencies: record(number), experimentalDesign: designCheck });
 const rowCheck = object({ id: integer(), plate: string, well: string, sample: string, group: string, pairId: string, target: string, task: string, cq: numeric, quantity: numeric, excluded: bool });
 const perFileCheck = object({ fileName: string, plate: string, headerRow: integer(), mapping: mappingCheck, cols: object({ sample: string, target: string, cq: string }), rowCount: integer(), ok: bool }, { problem: string });
 const reportCheck = object({ score: number, issues: array(object({ code: string, severity: oneOf('error', 'warning', 'info'), message: string }, { target: string })), advice: array(object({ code: string, message: string })), summary: string });

@@ -159,7 +159,7 @@ test('English melt summary and RDML reports, axis warnings and multi-sheet dialo
   await page.getByRole('button',{name:'＋ New project',exact:true}).click();
   await page.getByRole('button',{name:'Automatic analysis',exact:true}).click();
   await page.setInputFiles('input[type=file]',fixture('real/stepone_std.rdml'));
-  await expect(page.locator('.issue-list')).toContainText('Efficiencies declared in RDML targets applied');
+  await expect(page.getByRole('region', { name: 'Import-time record' })).toContainText('Efficiencies declared in RDML targets applied');
   await assertEnglishUi(page);
   await page.getByRole('button',{name:'My projects',exact:true}).click();
   await page.getByRole('button',{name:'＋ New project',exact:true}).click();

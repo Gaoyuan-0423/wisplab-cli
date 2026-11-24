@@ -4,11 +4,12 @@ import { LanguageSwitch, withLanguage, useI18n } from './i18n';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { del, get, set } from 'idb-keyval';
 import { analyzeDeltaDeltaCt, extractRows, guessRefGenes, isNtcRow, isStandardRow, type AnalysisRow } from './core/analysis';
-import { analyzeFileAuto, inferExperiment, type QualityReport } from './core/auto';
+import { analyzeFileAuto, buildQualityReport, inferExperiment, type QualityReport } from './core/auto';
 import type { MeltGeneSummary, MeltTableState } from './core/melt';
 import { parseMeltSummaryTable } from './core/melt';
 import { readInputFile, sheetToRawMatrix } from './core/parse';
 import { mergeFileMatrices, type FileMatrixInput, type PerFileInfo } from './core/merge';
+import { resolveNumericColumns } from './core/number';
 import MergeSummaryPanel from './ui/MergeSummaryPanel';
 import ProjectsDialog from './ui/ProjectsDialog';
 import { computeQcFlags } from './core/qc';
@@ -396,7 +397,7 @@ export default function App() {
       computeQcFlags(
         rows
           .filter((r) => !isNtcRow(r))
-          .map((r) => ({ id: r.id, sample: r.sample, target: r.target, cq: r.cq, excluded: r.excluded })),
+          .map((r) => ({ id: r.id, plate: r.plate, sample: r.sample, target: r.target, cq: r.cq, excluded: r.excluded })),
         config.qc,
       ),
     [rows, config.qc],
@@ -411,7 +412,23 @@ export default function App() {
     ? merged.perFile.some((f) => f.ok) && merged.rows.length > 0
     : mappingComplete(mapping);
   const canGoResults =
-    canGoConfig && config.controlSamples.length > 0 && config.refGenes.length > 0 && !!out && out.results.length > 0;
+    canGoConfig && config.refGenes.length > 0 && !!out && out.results.length > 0;
+  const numericNotes = useMemo(() => merged
+    ? inputMatrices.flatMap((input) => {
+        const s = sniff(input.matrix);
+        return resolveNumericColumns(input.matrix.slice(s.headerRow + 1), s.mapping).notes.map((note) => ({ ...note, fileName: input.fileName }));
+      })
+    : matrix.length ? resolveNumericColumns(matrix.slice(headerRow + 1), mapping).notes : [],
+  [merged, inputMatrices, matrix, headerRow, mapping]);
+  const currentReport = useMemo(() => out ? buildQualityReport({
+    rows, flags, output: out, mappingComplete: canGoConfig, headerRow, numericNotes,
+    guess: { controlSamples: out.controlSamples, refGenes: out.refGenesUsed, basis: guessBasis },
+  }) : null, [out, rows, flags, canGoConfig, headerRow, numericNotes, guessBasis]);
+  const analysisIdentity = useMemo(() => JSON.stringify([rows, config, out, currentReport, autoMelt]), [rows, config, out, currentReport, autoMelt]);
+  function invalidateDesignConfirmation() {
+    setConfig((prev) => prev.experimentalDesign ? { ...prev,
+      experimentalDesign: { ...prev.experimentalDesign, confirmed: false } } : prev);
+  }
 
   function goto(n: number) {
     if (n >= 2 && !canGoConfig) {
@@ -591,8 +608,8 @@ export default function App() {
               matrix={matrix}
               headerRow={headerRow}
               mapping={mapping}
-              onHeaderRow={setHeaderRow}
-              onMapping={setMapping}
+              onHeaderRow={(next) => { setHeaderRow(next); invalidateDesignConfirmation(); }}
+              onMapping={(next) => { setMapping(next); invalidateDesignConfirmation(); }}
             />
             <StepHelp step={2} />
           </>
@@ -614,22 +631,25 @@ export default function App() {
       )}
       {step === 4 && out && (
         <>
-          <ResultsPanel out={out} fileName={fileName} rows={rows} flags={flags} autoReport={autoReport} guessBasis={guessBasis} autoMelt={autoMelt} />
+          <ResultsPanel out={out} config={config} fileName={fileName} rows={rows} flags={flags} autoReport={currentReport} importReport={autoReport} guessBasis={guessBasis} autoMelt={autoMelt} />
           <StepHelp step={4} />
           <AiInterpretCard
+            key={`${analysisIdentity}:${aiConfig?.baseUrl ?? ''}:${aiConfig?.model ?? ''}`}
             aiConfig={aiConfig}
             onOpenSettings={() => setShowAiSettings(true)}
             payload={{
               experiment: {
-                controlSamples: config.controlSamples,
+                controlSamples: out.controlSamples,
                 refGenes: config.refGenes,
                 basis: guessBasis || undefined,
+                designStatus: out.designStatus,
+                experimentalDesign: config.experimentalDesign,
               },
               report: {
-                score: autoReport?.score ?? 100,
-                summary: autoReport?.summary ?? '',
-                issues: autoReport?.issues ?? [],
-                advice: autoReport?.advice ?? [],
+                score: currentReport?.score ?? 100,
+                summary: currentReport?.summary ?? '',
+                issues: currentReport?.issues ?? [],
+                advice: currentReport?.advice ?? [],
               },
               ntc: out.ntcReport.map((e) => ({ target: e.target, verdict: e.verdict, message: e.message })),
               melt: autoMelt,
@@ -639,6 +659,10 @@ export default function App() {
                 group: r.group,
                 isControl: r.isControl,
                 n: r.n,
+                nTech: r.nTech,
+                nBio: r.nBio,
+                unitId: r.unitId,
+                sampleIds: r.sampleIds,
                 deltaCt: r.deltaCt,
                 foldChange: r.foldChange,
                 fcSd: r.fcSd,
@@ -646,6 +670,7 @@ export default function App() {
                 pValue: r.pValue,
                 significance: r.significance,
               })),
+              groupResults: out.groupResults,
               warnings: out.warnings,
             }}
           />
@@ -662,7 +687,7 @@ export default function App() {
           {step === 3 && (
             <button
               className="primary"
-              disabled={!config.controlSamples.length || !config.refGenes.length}
+              disabled={!canGoResults}
               onClick={() => goto(4)}
             >
               {t("计算 ΔΔCt 并查看结果 →")}</button>

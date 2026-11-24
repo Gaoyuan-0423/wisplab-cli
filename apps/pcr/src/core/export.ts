@@ -1,28 +1,64 @@
 import { translate, type Language } from '../i18n/translate';
 import * as XLSX from 'xlsx';
-import type { AnalysisOutput, NtcReportEntry, QcFlags } from './types';
+import type { AnalysisOutput, ExperimentalDesign, NtcReportEntry, QcFlags } from './types';
 import type { AnalysisRow } from './analysis';
-import { formatP } from './stats';
 
 const NUM = (v: number | null | undefined, digits = 4): string => {
   if (v == null || !Number.isFinite(v)) return '';
   return String(Math.round(v * 10 ** digits) / 10 ** digits);
 };
 
-/** ΔΔCt 结果表（AOA，含表头）。 */
+/** Sample-level technical descriptions. Never attach group inference to a sample row. */
 export function resultAoa(out: AnalysisOutput, language: Language = 'zh'): (string | number)[][] {
   const t = (message: string) => translate(message, language);
   const header = [
-    '基因 Target', '样本 Sample', '组别 Group', '是否对照 Control', '复孔数 n',
+    '基因 Target', '样本 Sample', '组别 Group', '是否对照 Control', '技术孔数 nTech',
     '孔位 Wells', '平均 Cq', 'Cq SD', '内参 Cq (池化)', 'ΔCt', 'ΔΔCt',
-    out.effMode ? 'Fold Change (Pfaffl)' : 'Fold Change (2^-ΔΔCt)', 'FC SD', 'p 值（总体）', 'Dunnett 校正 p', '显著性', '统计方法',
+    out.effMode ? 'Fold Change (Pfaffl)' : 'Fold Change (2^-ΔΔCt)', '技术孔 FC SD',
+    '板号', '独立单位 ID', '独立单位数 nBio', '来源样本身份', '结果层级',
   ];
   const rows = out.results.map((r) => [
-    r.target, r.sample, r.group || '', t(r.isControl ? '是' : '否'), r.n,
+    r.target, r.sample, r.group || '', t(r.isControl ? '是' : '否'), r.nTech ?? r.n,
     r.wells.join(' '), NUM(r.meanCq), NUM(r.sdCq), NUM(r.refCq), NUM(r.deltaCt), NUM(r.ddCt),
-    NUM(r.foldChange), NUM(r.fcSd), formatP(r.pValue), formatP(r.pAdjusted), r.significance, t(r.statMethod),
+    NUM(r.foldChange), NUM(r.fcSd), r.plate ?? '', r.unitId ?? '',
+    out.designStatus === 'confirmed' ? r.nBio ?? '' : '',
+    JSON.stringify(r.sampleIds ?? [{ plate: r.plate ?? '', sample: r.sample }]), t('样本技术描述；不作组间推断'),
   ]);
   return [header.map(t), ...rows];
+}
+
+const RAW = (value: number | null | undefined): number | '' => value != null && Number.isFinite(value) ? value : '';
+
+/** Unit-level group summaries for CSV/XLSX; probabilities retain numeric precision. */
+export function groupResultAoa(out: AnalysisOutput, language: Language = 'zh'): (string | number)[][] {
+  const t = (message: string) => translate(message, language);
+  const confirmed = out.designStatus === 'confirmed';
+  const header = ['基因 Target', '组别 Group', '是否对照 Control', '独立单位数 nBio', '技术孔数 nTech',
+    '独立单位 ID 列表', '来源样本身份', '单位 ΔCt 均值', '单位 ΔCt SD', 'ΔΔCt',
+    out.effMode ? 'Fold Change (Pfaffl)' : 'Fold Change (2^-ΔΔCt)', '单位 FC 均值', '单位 FC SD',
+    'Welch p', 'Dunnett 校正 p', 'ANOVA 总体 p', '显著性', '统计方法', '设计状态'];
+  const rows = (out.groupResults ?? []).map((r) => [r.target, r.group, t(r.isControl ? '是' : '否'),
+    confirmed ? r.nBio : '', r.nTech, JSON.stringify(r.unitIds), JSON.stringify(r.sampleIds),
+    RAW(r.deltaCtMean), RAW(r.deltaCtSd), RAW(r.ddCt), RAW(r.foldChange), RAW(r.fcMean), RAW(r.fcSd),
+    confirmed ? RAW(r.pValue) : '', confirmed ? RAW(r.pAdjusted) : '', confirmed ? RAW(r.anovaPValue) : '',
+    confirmed ? r.significance : '', t(confirmed ? r.statMethod : '仅描述；未进行组间推断'),
+    out.designStatus ?? 'unconfirmed']);
+  return [header.map(t), ...rows];
+}
+
+/** Design status and provenance are separate from numerical result tables. */
+export function designAoa(out: AnalysisOutput, design?: ExperimentalDesign, language: Language = 'zh'): (string | number)[][] {
+  const t = (message: string) => translate(message, language);
+  return [
+    [t('设计状态'), out.designStatus ?? 'unconfirmed'],
+    [t('设计类型'), design?.kind ?? ''],
+    [t('设计已确认'), design ? t(design.confirmed ? '是' : '否') : ''],
+    [t('对照组'), design?.controlGroup ?? ''],
+    [t('单位与组别映射'), JSON.stringify(design?.assignments ?? [])],
+    [t('解释边界'), t('技术孔不作为独立重复；仅确认且支持的设计输出组间推断。')],
+    ...((out.designIssues ?? []).map((issue) => [issue.code, t(issue.message), issue.unitId ?? '', JSON.stringify(issue.sampleIds ?? [])])),
+    ...(out.warnings ?? []).map((warning) => [t('警告'), t(warning)]),
+  ];
 }
 
 /** 原始数据 + QC 标记表。 */
@@ -80,13 +116,16 @@ export function buildWorkbook(
     refGenes: string[];
     controlSamples: string[];
     efficiencies?: Record<string, number>;
+    experimentalDesign?: ExperimentalDesign;
     melt?: { gene: string; checked: number; single: number; none: number; multi: { sample: string; well: string; tm: number | null }[] }[];
   },
   language: Language = 'zh',
 ): XLSX.WorkBook {
   const t = (message: string) => translate(message, language);
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, aoaToSheet(resultAoa(out, language)), t('ΔΔCt结果'));
+  XLSX.utils.book_append_sheet(wb, aoaToSheet(resultAoa(out, language)), t('样本技术描述'));
+  XLSX.utils.book_append_sheet(wb, aoaToSheet(groupResultAoa(out, language)), t('组级独立单位结果'));
+  XLSX.utils.book_append_sheet(wb, aoaToSheet(designAoa(out, meta.experimentalDesign, language)), t('实验设计与边界'));
   XLSX.utils.book_append_sheet(wb, aoaToSheet(rawAoa(rows, flags, language)), t('原始数据与QC'));
   if (out.ntcReport.length > 0) {
     XLSX.utils.book_append_sheet(wb, aoaToSheet(ntcAoa(out.ntcReport, language)), t('NTC污染检查'));
@@ -99,7 +138,11 @@ export function buildWorkbook(
     [t('源文件'), meta.fileName],
     [t('内参基因（池化）'), meta.refGenes.join('、')],
     [t('对照组样本'), meta.controlSamples.join('、')],
-    [t('方法'), t(out.effMode ? 'Pfaffl 效率校正；统计在个体 ΔCt 上（2组 Welch t / 多组单因素 ANOVA + Dunnett）' : 'Livak 2^-ΔΔCt；统计在个体 ΔCt 上（2组 Welch t / 多组单因素 ANOVA + Dunnett）')],
+    [t('方法'), out.effMode ? 'Pfaffl' : 'Livak 2^-ΔΔCt'],
+    [t('设计状态'), out.designStatus ?? 'unconfirmed'],
+    [t('统计方法'), out.designStatus === 'confirmed'
+      ? [...new Set((out.groupResults ?? []).map((r) => r.statMethod).filter(Boolean))].map(t).join('; ')
+      : t('仅描述；未进行组间推断')],
     ...Object.entries(out.efficiencies)
       .filter(([, v]) => Number.isFinite(v) && v !== 100)
       .map(([g, v]) => [t(`效率 ${g}`), t(`${v}%（E=${(1 + v / 100).toFixed(3)}，Pfaffl 校正生效）`)]),

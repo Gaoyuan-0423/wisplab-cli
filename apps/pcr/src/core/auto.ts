@@ -9,8 +9,9 @@ import { sniff } from './sniff';
 import { fitAllStandardCurves } from './standard';
 import { summarizeMeltByGene, type RdmlMeltCurve } from './melt';
 import { sd } from './stats';
+import { describeNumericNote, resolveNumericColumns, type NumericColumnNote } from './number';
 import { isStandardRow } from './analysis';
-import { mappingComplete, type AnalysisConfig, type AnalysisOutput, type ColumnMapping, type QcFlags } from './types';
+import { mappingComplete, type AnalysisConfig, type AnalysisOutput, type ColumnMapping, type ExperimentalDesign, type QcFlags } from './types';
 
 export type IssueSeverity = 'error' | 'warning' | 'info';
 
@@ -117,13 +118,22 @@ export interface ReportInput {
   guess: ExperimentGuess;
   mappingComplete: boolean;
   headerRow: number;
+  /** Quantity-column readings that rest on a decimal-mark assumption. */
+  numericNotes?: NumericColumnNote[];
 }
 
 /** 规则引擎：从分析产物中找出问题并给出可执行的优化建议（完全离线、确定性）。 */
 export function buildQualityReport(input: ReportInput): QualityReport {
   const issues: Issue[] = [];
   const advice: Advice[] = [];
-  const { rows, flags, output, guess } = input;
+  const { rows, flags, output } = input;
+
+  for (const issue of output.designIssues) {
+    issues.push({ code: issue.code, severity: output.designStatus === 'invalid' ? 'error' : 'warning', message: issue.message });
+  }
+  if (output.designStatus !== 'confirmed') {
+    advice.push({ code: 'CONFIRM_EXPERIMENTAL_DESIGN', message: '明确每个原始板号与样本对应的实验单位及组别，并确认实验设计；技术复孔不能替代生物学重复。' });
+  }
 
   const nonNtc = rows.filter((r) => !isNtcRow(r));
   const finiteCq = nonNtc.filter((r) => Number.isFinite(r.cq));
@@ -132,6 +142,9 @@ export function buildQualityReport(input: ReportInput): QualityReport {
   if (!input.mappingComplete) {
     issues.push({ code: 'MAPPING_INCOMPLETE', severity: 'error', message: '必需列（样本/基因/Cq）未全部识别，分析不可信' });
     advice.push({ code: 'FIX_MAPPING', message: '回到第 2 步手动指定列映射后再分析' });
+  }
+  for (const note of input.numericNotes ?? []) {
+    issues.push({ code: 'QUANTITY_DECIMAL_AMBIGUOUS', severity: 'warning', ...(note.fileName ? { target: note.fileName } : {}), message: describeNumericNote(note) });
   }
   if (input.headerRow > 10) {
     issues.push({ code: 'DEEP_HEADER', severity: 'info', message: `表头位于第 ${input.headerRow + 1} 行，文件含大段元数据，已自动跳过` });
@@ -155,20 +168,22 @@ export function buildQualityReport(input: ReportInput): QualityReport {
   }
 
   // 对照组
-  if (guess.controlSamples.length === 0 || output.controlSamples.length === 0) {
+  if (output.controlSamples.length === 0) {
     issues.push({ code: 'NO_CONTROL', severity: 'error', message: '未确定对照组样本，ΔΔCt 无基准' });
     advice.push({ code: 'SET_CONTROL', message: '在实验配置中指定对照组（如 Control/Sham/WT）' });
   } else {
-    const ctrlN = output.results.filter((r) => r.isControl).reduce((s, r) => s + r.n, 0);
-    if (ctrlN > 0 && ctrlN < 3) {
-      issues.push({ code: 'CONTROL_SMALL', severity: 'warning', target: output.controlSamples.join('、'), message: `对照组总复孔数仅 ${ctrlN}，统计效力不足` });
+    const smallControls = output.groupResults.filter((r) => r.isControl && r.nBio < 3);
+    for (const control of smallControls) {
+      issues.push({ code: 'CONTROL_SMALL', severity: 'warning', target: control.target, message: `${control.target}：对照组独立实验单位数仅 ${control.nBio}，技术孔不增加生物学样本量` });
+    }
+    if (smallControls.length) {
       advice.push({ code: 'MORE_REPLICATES', message: '对照组建议 ≥3 个生物学重复（每重复 ≥2 复孔）' });
     }
   }
 
   // 复孔与样本量
   const treatmentRows = output.results.filter((r) => !r.isControl);
-  const singleRep = treatmentRows.filter((r) => r.n < 2);
+  const singleRep = treatmentRows.filter((r) => r.nTech < 2);
   if (singleRep.length > 0) {
     issues.push({ code: 'NO_REPLICATE', severity: 'warning', target: singleRep.slice(0, 3).map((r) => r.sample).join('、'), message: `${singleRep.length} 个"样本×基因"组合只有 1 孔，无复孔可用` });
     advice.push({ code: 'TECH_REPLICATE', message: '每个样本×基因至少 2–3 个技术复孔，便于离群判定' });
@@ -178,7 +193,7 @@ export function buildQualityReport(input: ReportInput): QualityReport {
     issues.push({ code: 'HIGH_REPLICATE_SD', severity: 'warning', target: highSd.slice(0, 3).map((r) => `${r.sample}/${r.target}(SD ${r.sdCq.toFixed(2)})`).join('、'), message: `${highSd.length} 个组合复孔 SD > 0.7` });
     advice.push({ code: 'PIPETTING', message: '复孔波动大通常源于移液/混匀：检查加样一致性，必要时加大模板量重做' });
   }
-  if (treatmentRows.length > 0 && treatmentRows.every((r) => r.n < 3)) {
+  if (output.groupResults.some((r) => !r.isControl && r.nBio < 3)) {
     advice.push({ code: 'BIO_REPLICATE', message: '每处理组建议 ≥3 个生物学重复，否则组间比较说服力有限' });
   }
 
@@ -214,9 +229,9 @@ export function buildQualityReport(input: ReportInput): QualityReport {
   }
 
   // 统计边界
-  const borderline = output.results.filter((r) => r.pAdjusted != null && r.pAdjusted >= 0.05 && r.pAdjusted < 0.15);
+  const borderline = output.groupResults.filter((r) => r.pAdjusted != null && r.pAdjusted >= 0.05 && r.pAdjusted < 0.15);
   if (borderline.length > 0) {
-    issues.push({ code: 'P_BORDERLINE', severity: 'info', target: borderline.map((r) => `${r.sample}/${r.target}`).slice(0, 3).join('、'), message: `${borderline.length} 个比较的校正 p 落在 0.05–0.15 边界区` });
+    issues.push({ code: 'P_BORDERLINE', severity: 'info', target: borderline.map((r) => `${r.group}/${r.target}`).slice(0, 3).join('、'), message: `${borderline.length} 个比较的校正 p 落在 0.05–0.15 边界区` });
     advice.push({ code: 'MORE_POWER', message: '边界结论对样本量敏感：增加生物学重复可能改变结论' });
   }
   const extreme = output.results.filter((r) => r.foldChange != null && (r.foldChange > 16 || r.foldChange < 0.0625));
@@ -247,10 +262,11 @@ export function buildQualityReport(input: ReportInput): QualityReport {
 /** 一键分析：单工作表矩阵 → 全流程结果。 */
 export function analyzeAuto(
   matrix: string[][],
-  opts: { fileName?: string; sheetName?: string; presetEfficiencies?: Record<string, number>; meltCurves?: RdmlMeltCurve[] } = {},
+  opts: { fileName?: string; sheetName?: string; presetEfficiencies?: Record<string, number>; meltCurves?: RdmlMeltCurve[]; experimentalDesign?: ExperimentalDesign } = {},
 ): AutoAnalysisResult {
   const s = sniff(matrix);
-  const rows = extractRows(matrix.slice(s.headerRow + 1), s.mapping);
+  const dataRows = matrix.slice(s.headerRow + 1);
+  const rows = extractRows(dataRows, s.mapping);
   const samples = [...new Set(rows.filter((r) => !isNtcRow(r) && !isStandardRow(r)).map((r) => r.sample).filter(Boolean))].sort();
   const genes = [...new Set(rows.map((r) => r.target).filter(Boolean))].sort();
   const groupMap = new Map(rows.filter((r) => !isNtcRow(r) && !isStandardRow(r)).map((r) => [r.sample, r.group] as const));
@@ -272,9 +288,10 @@ export function analyzeAuto(
     refGenes: guess.refGenes,
     qc: { minCq: NaN, maxCq: NaN, absDev: NaN, zScore: NaN },
     efficiencies: Object.keys(mergedEfficiencies).length ? mergedEfficiencies : undefined,
+    experimentalDesign: opts.experimentalDesign,
   };
   const flags = computeQcFlags(
-    rows.filter((r) => !isNtcRow(r)).map((r) => ({ id: r.id, sample: r.sample, target: r.target, cq: r.cq, excluded: r.excluded })),
+    rows.filter((r) => !isNtcRow(r)).map((r) => ({ id: r.id, plate: r.plate, sample: r.sample, target: r.target, cq: r.cq, excluded: r.excluded })),
     config.qc,
   );
   const output = analyzeDeltaDeltaCt(rows, config);
@@ -285,6 +302,7 @@ export function analyzeAuto(
     guess,
     mappingComplete: mappingComplete(s.mapping),
     headerRow: s.headerRow,
+    numericNotes: resolveNumericColumns(dataRows, s.mapping).notes.map((note) => ({ ...note, fileName: opts.fileName })),
   });
 
   // 标准曲线信息进报告
@@ -335,6 +353,7 @@ export function analyzeAuto(
 export interface AnalyzeFileOptions {
   /** 多工作表时的选择策略，默认取数据行最多的表 */
   sheet?: 'largest' | 'first';
+  experimentalDesign?: ExperimentalDesign;
 }
 
 /** 一键分析：File 对象 → 全流程结果（浏览器与 Node 通用）。支持 RDML 标准格式。 */
@@ -346,6 +365,7 @@ export async function analyzeFileAuto(file: File, opts: AnalyzeFileOptions = {})
       sheetName: 'RDML',
       presetEfficiencies: parsed.targetEfficiencies,
       meltCurves: parsed.meltCurves,
+      experimentalDesign: opts.experimentalDesign,
     });
     if (Object.keys(parsed.targetEfficiencies).length) {
       result.report.issues.unshift({
@@ -367,7 +387,7 @@ export async function analyzeFileAuto(file: File, opts: AnalyzeFileOptions = {})
     opts.sheet === 'first'
       ? summaries[0]
       : summaries.reduce((a, b) => (b.matrix.length > a.matrix.length ? b : a));
-  const result = analyzeAuto(chosen.matrix, { fileName: file.name, sheetName: chosen.name });
+  const result = analyzeAuto(chosen.matrix, { fileName: file.name, sheetName: chosen.name, experimentalDesign: opts.experimentalDesign });
   return {
     ...result,
     matrix: chosen.matrix,

@@ -3,6 +3,7 @@ import { sd } from './stats';
 
 export interface QcInputRow {
   id: number;
+  plate?: string;
   sample: string;
   target: string;
   cq: number; // NaN 表示非数值
@@ -13,7 +14,7 @@ export interface QcInputRow {
  * 逐孔 QC 标记：
  * - 缺样本 / 缺基因 / 非数值 Cq
  * - Cq 越界（minCq / maxCq 启用时）
- * - 复孔离群（同样本同基因 ≥3 孔）：绝对偏差超 absDev，或 z 分数超 zScore
+ * - 复孔离群（同板、同样本、同基因 ≥3 孔）：绝对偏差超 absDev，或 z 分数超 zScore
  * 已手工剔除的孔不再重复标记。
  */
 export function computeQcFlags(rows: QcInputRow[], settings: QcSettings): QcFlags {
@@ -33,7 +34,7 @@ export function computeQcFlags(rows: QcInputRow[], settings: QcSettings): QcFlag
     }
     if (reasons.length) flags[row.id] = reasons;
     if (!row.excluded && row.sample && row.target && Number.isFinite(row.cq)) {
-      const key = `${row.sample}||${row.target}`;
+      const key = JSON.stringify([row.plate ?? '', row.sample, row.target]);
       const arr = groups.get(key);
       if (arr) arr.push(row);
       else groups.set(key, [row]);

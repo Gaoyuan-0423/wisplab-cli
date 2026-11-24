@@ -6,12 +6,17 @@ import type { SampleTargetResult } from './types';
 
 function fakeResult(sample: string, target: string, values: number[], isControl = false): SampleTargetResult {
   return {
+    plate: '',
     sample,
+    unitId: null,
+    sampleIds: [{ plate: '', sample }],
     group: '',
     target,
     isControl,
     excluded: false,
     n: values.length,
+    nTech: values.length,
+    nBio: null,
     values,
     wells: [],
     meanCq: 20,

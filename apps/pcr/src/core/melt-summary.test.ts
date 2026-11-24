@@ -9,7 +9,7 @@ const here = fileURLToPath(new URL('.', import.meta.url));
 const REAL = join(here, '../../tests/fixtures/real');
 
 function loadMatrix(path: string): string[][] {
-  const wb = XLSX.read(readFileSync(path, 'utf-8'), { type: 'string', raw: false });
+  const wb = XLSX.read(readFileSync(path, 'utf-8'), { type: 'string', raw: true });
   const json = XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '', raw: true });
   return json.map((r) => (r ?? []).map((v) => (v == null ? '' : String(v).trim()))).filter((r) => r.some((c) => c.length > 0));
 }

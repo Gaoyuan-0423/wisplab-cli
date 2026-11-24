@@ -8,6 +8,7 @@ export default defineConfig({
   timeout: 60_000,
   use: {
     baseURL,
+    channel: process.env.PLAYWRIGHT_CHANNEL,
   },
   webServer: {
     command: `npm run dev -- --port ${port} --strictPort`,

@@ -141,7 +141,7 @@ test('一键智能分析：跳过向导直接出结果与质量报告', async ({
   await expect(page.locator('.issue-list li.sev-error', { hasText: 'NTC' })).toBeVisible();
 });
 
-test('多板合并：两个文件一起拖入，跨板计算 ΔΔCt', async ({ page }) => {
+test('多板合并：显式确认相同单位后跨板计算 ΔΔCt', async ({ page }) => {
   await page.goto('/');
   await page.setInputFiles('input[type=file]', [fixture('merge-plate1.csv'), fixture('merge-plate2.csv')]);
   await page.getByRole('heading', { name: '合并 2 个文件' }).waitFor({ timeout: 15_000 });
@@ -150,10 +150,19 @@ test('多板合并：两个文件一起拖入，跨板计算 ΔΔCt', async ({ p
   await page.getByRole('button', { name: '下一步：孔板与配置 →' }).click();
   await expect(page.getByText('孔板布局（2 块板合并分析）')).toBeVisible();
   await page.locator('.check-list label', { hasText: 'Control-1' }).locator('input').check();
+  const design = page.getByRole('region', { name: '实验单位与分组' });
+  for (const row of await design.locator('tbody tr').all()) {
+    const sample = (await row.locator('td').nth(1).textContent())!;
+    await row.getByRole('textbox').nth(0).fill(sample);
+    await row.getByRole('textbox').nth(1).fill(sample.startsWith('Control') ? 'Control' : 'Treatment');
+  }
+  await design.getByLabel('推断统计的对照组').selectOption('Control');
+  await design.getByRole('checkbox').check();
   await page.getByRole('button', { name: '计算 ΔΔCt 并查看结果 →' }).click();
   await expect(page.getByText('ΔΔCt 结果表')).toBeVisible();
   // 跨板合并后 Fold Change ≈ 5.04（2^(16/3-3)）
-  await expect(page.getByText('5.04')).toBeVisible();
+  await expect(page.getByText('5.04').first()).toBeVisible();
+  await expect(page.getByRole('region', { name: '统计设计状态' })).toContainText('至少需要 2 个');
 });
 
 test('标准曲线自动拟合：Task=STANDARD + Quantity 一键应用效率', async ({ page }) => {
@@ -294,10 +303,14 @@ test('图表定制：多基因分段 + 显著性模式 + Prism 导出', async ({
   }, xml);
   expect(parsed.error).toBeNull();
   expect(parsed.root).toBe('GraphPadPrismFile');
-  expect(parsed.rowTitles).toEqual([['1', '2', '3'], ['1', '2', '3'], ['Mean', 'SD']]);
+  expect(parsed.rowTitles).toEqual([
+    ['技术孔 1', '技术孔 2', '技术孔 3'], ['技术孔 1', '技术孔 2', '技术孔 3'],
+    ['描述值'], ['技术孔 FC SD'],
+  ]);
   expect(parsed.references).toEqual(parsed.tableIds);
-  expect(parsed.tableIds).toHaveLength(3);
-  expect(parsed.values).toHaveLength(20); // Ten sample/gene columns plus the same ten summary columns.
+  expect(parsed.tableIds).toHaveLength(4);
+  expect(parsed.values).toHaveLength(30); // Ten technical columns; ten FC and ten SD scalar columns in separate tables.
+  expect(parsed.values.slice(10).every((values) => values.length === 1)).toBe(true);
   expect(parsed.values[0].every((value) => Number.isFinite(Number(value)))).toBe(true);
 });
 
@@ -324,9 +337,11 @@ test('图表定制进阶：基因勾选、名称修改、log2 刻度、统计学
   await expect(page.locator('.chart-preview svg text', { hasText: '对照组' }).first()).toBeVisible();
   // log2 刻度
   await page.getByLabel('Y 轴刻度').selectOption('log2');
-  // 统计学方法脚注（图片下方文字）
-  await expect(page.locator('.method-caption')).toContainText('统计学方法');
-  await expect(page.locator('.method-caption')).toContainText('Dunnett');
+  // Merely choosing a normalization control does not confirm independent units.
+  await expect(page.locator('.method-caption')).toHaveCount(0);
+  await expect(page.getByText('当前仅提供描述性结果；实验设计尚未确认、无效或暂不支持。')).toBeVisible();
+  await expect(page.getByText('图中误差仅描述技术孔变化，不能解释为生物重复之间的不确定性。')).toBeVisible();
+  await expect(page.locator('.chart-preview')).not.toContainText('Dunnett');
 });
 
 test('多基因图例与基因重命名', async ({ page }) => {

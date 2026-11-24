@@ -49,11 +49,18 @@ describe('多板合并', () => {
     expect(m.rows.every((r) => r.plate === 'merge-plate1' || r.plate === 'merge-plate2')).toBe(true);
   });
 
-  it('跨板 ΔCt 手算对照：内参在板1、目标在板2 自动配对', () => {
+  it('跨板 ΔCt 手算对照：显式声明板1与板2样本属于同一单位后配对', () => {
     const out = analyzeDeltaDeltaCt(m.rows, {
       controlSamples: ['Control-1'],
       refGenes: ['GAPDH'],
       qc: DEFAULT_QC,
+      experimentalDesign: {
+        kind: 'independent', confirmed: true, controlGroup: 'Control',
+        assignments: ['merge-plate1', 'merge-plate2'].flatMap((plate) => [
+          { plate, sample: 'Control-1', unitId: 'Control-1', group: 'Control' },
+          { plate, sample: 'Treat-1', unitId: 'Treat-1', group: 'Treatment' },
+        ]),
+      },
     });
     expect(out.results).toHaveLength(2);
     const ctrl = out.results.find((r) => r.isControl)!;

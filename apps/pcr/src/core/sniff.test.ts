@@ -10,7 +10,7 @@ const FIXTURES = join(fileURLToPath(new URL('.', import.meta.url)), '../../tests
 
 function loadFixture(name: string): string[][] {
   const text = readFileSync(join(FIXTURES, name), 'utf-8');
-  const wb = XLSX.read(text, { type: 'string', raw: false });
+  const wb = XLSX.read(text, { type: 'string', raw: true });
   const ws = wb.Sheets[wb.SheetNames[0]];
   const json = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: '', raw: true });
   return json.map((row) => (row ?? []).map((v) => (v == null ? '' : String(v).trim())));

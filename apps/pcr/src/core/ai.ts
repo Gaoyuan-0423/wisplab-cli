@@ -81,6 +81,7 @@ export function buildInterpretMessages(payload: unknown, language: Language = 'z
         t('1) 先用两三句话概括实验结论（哪些基因在哪些处理下上调/下调、是否显著）；') +
         t('2) 逐条解读质量报告中的问题（严重/警告），说明其对结果可信度的影响；') +
         t('3) 给出下一步实验或分析建议。') +
+        t('仅在设计已确认且组级结果提供有效 p 值时讨论组间显著性。nTech 是技术孔数，不能代替 nBio；未确认、无效或不支持的设计只能描述测量值。代码执行成功不能证明实验结论有效，结论需由实验者核对。') +
         t('用 markdown 小标题组织，总长不超过 500 字。不要复述原始数字表格，只提炼关键结论。'),
     },
     { role: 'user', content: JSON.stringify(payload) },

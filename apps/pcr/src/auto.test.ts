@@ -9,7 +9,7 @@ const here = fileURLToPath(new URL('.', import.meta.url));
 const FIXTURES = join(here, '../tests/fixtures');
 
 function loadMatrix(rel: string): string[][] {
-  const wb = XLSX.read(readFileSync(join(FIXTURES, rel), 'utf-8'), { type: 'string', raw: false });
+  const wb = XLSX.read(readFileSync(join(FIXTURES, rel), 'utf-8'), { type: 'string', raw: true });
   const json = XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '', raw: true });
   return json.map((r) => (r ?? []).map((v) => (v == null ? '' : String(v).trim()))).filter((r) => r.some((c) => c.length > 0));
 }
@@ -50,9 +50,11 @@ describe('analyzeAuto 一键分析', () => {
   it('对照组自动推断为 Control-1/2/3', () => {
     expect(r.guess.controlSamples).toEqual(['Control-1', 'Control-2', 'Control-3']);
   });
-  it('产出结果与统计', () => {
+  it('自动分析保留描述结果，未确认实验设计时不推断组间显著性', () => {
     expect(r.output.results.length).toBeGreaterThan(0);
-    expect(r.output.results.some((x) => x.pAdjusted != null)).toBe(true);
+    expect(r.output.designStatus).toBe('unconfirmed');
+    expect(r.output.groupResults).toEqual([]);
+    expect(r.output.results.every((x) => x.pAdjusted === null && x.pValue === null && x.nBio === null)).toBe(true);
   });
   it('发现 FK 血样外离群孔为问题（Cq 29.70 行触发复孔 SD 警告）', () => {
     expect(r.report.issues.some((i) => i.code === 'HIGH_REPLICATE_SD')).toBe(true);

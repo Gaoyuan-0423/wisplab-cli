@@ -13,11 +13,12 @@ export function AiInterpretCard({
   aiConfig: AiConfig | null;
   onOpenSettings: () => void;
   payload: {
-    experiment: { controlSamples: string[]; refGenes: string[]; basis?: string };
+    experiment: { controlSamples: string[]; refGenes: string[]; basis?: string; designStatus?: string; experimentalDesign?: import('../core/types').ExperimentalDesign };
     report: Pick<QualityReport, 'score' | 'summary' | 'issues' | 'advice'>;
     ntc: { target: string; verdict: string; message: string }[];
     melt?: MeltGeneSummary[];
     results: unknown[];
+    groupResults?: unknown[];
     warnings: string[];
   };
 }) {

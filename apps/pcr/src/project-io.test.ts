@@ -20,6 +20,23 @@ async function mutate(blob: Blob, change: (state: any) => void): Promise<Blob> {
   return new Blob([Uint8Array.from(zipSync(entries)).buffer]);
 }
 describe('PCR project package', () => {
+  it('preserves explicitly confirmed unit assignments across a project round trip', async () => {
+    const source = fixture();
+    source.config.experimentalDesign = { kind: 'independent', confirmed: true, controlGroup: 'Control', assignments: [
+      { plate: 'P1', sample: 'A', unitId: 'animal-1', group: 'Control' },
+      { plate: 'P2', sample: 'A', unitId: 'animal-2', group: 'Treatment' },
+    ] };
+    const restored = await importPcrProject((await exportPcrProject(source)).blob);
+    expect(restored.project.config.experimentalDesign).toEqual(source.config.experimentalDesign);
+  });
+  it('keeps legacy projects unconfirmed and rejects malformed design metadata', async () => {
+    const blob = (await exportPcrProject(fixture())).blob;
+    expect((await importPcrProject(blob)).project.config.experimentalDesign).toBeUndefined();
+    const bad = await mutate(blob, (manifest) => {
+      manifest.state.project.config.experimentalDesign = { kind: 'independent', confirmed: 'true', controlGroup: 'Control', assignments: [] };
+    });
+    await expect(importPcrProject(bad)).rejects.toThrow();
+  });
   it('round-trips raw files, NaN QC, exclusions, reports, melt state and names', async () => {
     const source = fixture();
     const { blob, completeness } = await exportPcrProject(source);

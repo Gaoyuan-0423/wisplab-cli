@@ -43,12 +43,41 @@ export interface QcSettings {
 
 export const DEFAULT_QC: QcSettings = { minCq: NaN, maxCq: NaN, absDev: NaN, zScore: NaN };
 
+/** 原始样本身份。跨板同名不自动视为同一实验单位。 */
+export interface SampleIdentity {
+  plate: string;
+  sample: string;
+}
+
+export interface ExperimentalUnitAssignment extends SampleIdentity {
+  unitId: string;
+  group: string;
+}
+
+export interface ExperimentalDesign {
+  kind: 'independent' | 'paired' | 'repeated';
+  confirmed: boolean;
+  controlGroup: string;
+  assignments: ExperimentalUnitAssignment[];
+}
+
+export type DesignStatus = 'unconfirmed' | 'invalid' | 'unsupported' | 'confirmed';
+
+export interface AnalysisDesignIssue {
+  code: string;
+  message: string;
+  unitId?: string;
+  sampleIds?: SampleIdentity[];
+}
+
 export interface AnalysisConfig {
   controlSamples: string[];
   refGenes: string[];
   qc: QcSettings;
   /** 每基因扩增效率（百分比，100 = 恰好翻倍）；缺省按 100 处理，全部为 100 时即 Livak 法 */
   efficiencies?: Record<string, number>;
+  /** 只有人工确认且完整无冲突的独立设计允许组间推断。 */
+  experimentalDesign?: ExperimentalDesign;
 }
 
 /** 单孔 QC 标记原因（空数组 = 通过）。 */
@@ -56,12 +85,19 @@ export type QcFlags = Record<number, string[]>;
 
 /** 单个"样本 × 基因"的聚合结果与统计。 */
 export interface SampleTargetResult {
+  plate: string;
   sample: string;
+  unitId: string | null;
+  sampleIds: SampleIdentity[];
   group: string;
   target: string;
   isControl: boolean;
   excluded: boolean;
   n: number;
+  /** n 的显式名称：当前目标基因的有效技术孔数。 */
+  nTech: number;
+  /** 确认独立设计时每行是一个单位；未确认时生物学 n 未知。 */
+  nBio: number | null;
   values: number[];
   wells: string[];
   meanCq: number;
@@ -81,6 +117,33 @@ export interface SampleTargetResult {
   statMethod: string;
 }
 
+/** 按生物学单位等权汇总；所有统计输入均为单位级 ΔCt。 */
+export interface GroupTargetResult {
+  group: string;
+  target: string;
+  isControl: boolean;
+  nBio: number;
+  nTech: number;
+  unitIds: string[];
+  sampleIds: SampleIdentity[];
+  deltaCtValues: number[];
+  deltaCtMean: number;
+  deltaCtSd: number;
+  ddCt: number | null;
+  foldChange: number | null;
+  fcValues: number[];
+  fcMean: number;
+  fcSd: number;
+  /** 两组时处理组相对对照的 Welch p；多组时为 null。 */
+  pValue: number | null;
+  /** 多组时该处理组相对对照的 Dunnett 校正 p。 */
+  pAdjusted: number | null;
+  /** 多组时包括对照的总体 ANOVA p。 */
+  anovaPValue: number | null;
+  significance: string;
+  statMethod: string;
+}
+
 export type NtcVerdict = 'pass' | 'late' | 'contaminated';
 
 /** 单个目标基因的 NTC（无模板对照）污染检查结果。 */
@@ -96,6 +159,9 @@ export interface NtcReportEntry {
 
 export interface AnalysisOutput {
   results: SampleTargetResult[];
+  groupResults: GroupTargetResult[];
+  designStatus: DesignStatus;
+  designIssues: AnalysisDesignIssue[];
   refGenesUsed: string[];
   controlSamples: string[];
   warnings: string[];

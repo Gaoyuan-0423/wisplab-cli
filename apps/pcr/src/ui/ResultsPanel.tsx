@@ -1,6 +1,7 @@
 import { useI18n } from '../i18n';
 import { useEffect, useMemo, useState } from 'react';
-import type { AnalysisOutput, SampleTargetResult } from '../core/types';
+import type { AnalysisOutput } from '../core/types';
+import { chartDataFromOutput, type ChartInput } from '../core/chart-data';
 import { formatP } from '../core/stats';
 import {
   downloadCsv,
@@ -9,6 +10,7 @@ import {
   downloadWorkbook,
   buildWorkbook,
   resultAoa,
+  groupResultAoa,
   downloadBlob,
 } from '../core/export';
 import { DEFAULT_CHART_OPTIONS, type ChartOptions } from '../core/chart-options';
@@ -19,10 +21,12 @@ import { buildPrismPzfx } from '../core/pzfx';
 
 interface Props {
   out: AnalysisOutput;
+  config: import('../core/types').AnalysisConfig;
   fileName: string;
   rows: import('../core/analysis').AnalysisRow[];
   flags: import('../core/types').QcFlags;
   autoReport?: import('../core/auto').QualityReport | null;
+  importReport?: import('../core/auto').QualityReport | null;
   guessBasis?: string;
   autoMelt?: import('../core/melt').MeltGeneSummary[];
 }
@@ -57,9 +61,10 @@ function ChartNumberInput({ value, min, max, step = 1, onValueChange }: {
   />;
 }
 
-export default function ResultsPanel({ out, fileName, rows, flags, autoReport, guessBasis, autoMelt }: Props) {
+export default function ResultsPanel({ out, config, fileName, rows, flags, autoReport, importReport, guessBasis, autoMelt }: Props) {
   const { t, language } = useI18n();
   const genes = useMemo(() => [...new Set(out.results.map((r) => r.target))], [out.results]);
+  const chartData = useMemo(() => chartDataFromOutput(out), [out]);
   const [gene, setGene] = useState(genes[0] ?? '');
   const [multiGene, setMultiGene] = useState(false);
   const [selectedGenes, setSelectedGenes] = useState<Set<string>>(new Set());
@@ -71,14 +76,14 @@ export default function ResultsPanel({ out, fileName, rows, flags, autoReport, g
   // 样本 → 组别 映射（名称修改处展示）
   const sampleGroup = useMemo(() => {
     const m = new Map<string, string>();
-    for (const r of out.results) {
+    for (const r of chartData) {
       if (r.group && !m.has(r.sample)) m.set(r.sample, r.group);
     }
     return m;
-  }, [out.results]);
+  }, [chartData]);
 
   // 每样本颜色：对照用 controlColor，处理组统一 groupColor
-  const colorFor = (r: SampleTargetResult): string =>
+  const colorFor = (r: ChartInput): string =>
     r.isControl ? chartOpts.controlColor : chartOpts.groupColor;
 
   const geneResults = out.results.filter((r) => r.target === activeGene);
@@ -103,13 +108,13 @@ export default function ResultsPanel({ out, fileName, rows, flags, autoReport, g
       .map((g) => ({
         gene: chartOpts.geneLabelOverrides[g] || g,
         bars: buildBarsForGene(
-          out.results.filter((r) => r.target === g),
+          chartData.filter((r) => r.target === g),
           chartOpts,
           colorFor,
         ),
       }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [out.results, chartGenes, chartOpts]);
+  }, [chartData, chartGenes, chartOpts]);
 
   const svgString = useMemo(() => {
     return multiGeneChartSvg(segments, chartOpts, t('相对表达量图'));
@@ -146,15 +151,15 @@ export default function ResultsPanel({ out, fileName, rows, flags, autoReport, g
 
   // 统计学方法脚注（图片下方文字，不画进图）
   const methodNote = useMemo(() => {
-    const methods = [...new Set(out.results.filter((r) => !r.isControl).map((r) => r.statMethod).filter(Boolean))];
+    const methods = [...new Set(out.groupResults.filter((r) => !r.isControl).map((r) => r.statMethod).filter(Boolean))];
     if (methods.length === 0) return null;
     return t('统计学方法：') + methods.map((method) => t(method)).join(language === 'en' ? '; ' : '；') + t('；误差棒 = ') + (chartOpts.errorBar === 'sem' ? 'SEM' : chartOpts.errorBar === 'none' ? t('无') : 'SD') + (language === 'en' ? '.' : '。');
-  }, [out.results, chartOpts.errorBar, language, t]);
+  }, [out.groupResults, chartOpts.errorBar, language, t]);
 
   // 图上柱子的样本显示名覆盖（唯一样本列表）
   const chartSamples = useMemo(
-    () => [...new Set(out.results.map((r) => r.sample))],
-    [out.results],
+    () => [...new Set(chartData.map((r) => r.sample))],
+    [chartData],
   );
 
   function exportExcel() {
@@ -163,6 +168,7 @@ export default function ResultsPanel({ out, fileName, rows, flags, autoReport, g
       refGenes: out.refGenesUsed,
       controlSamples: out.controlSamples,
       efficiencies: out.efficiencies,
+      experimentalDesign: config.experimentalDesign,
       melt: autoMelt,
     }, language);
     downloadWorkbook(wb, baseName() + '.xlsx');
@@ -177,12 +183,25 @@ export default function ResultsPanel({ out, fileName, rows, flags, autoReport, g
       projectName: fileName,
       refGenes: out.refGenesUsed,
       controlSamples: out.controlSamples,
+      groupResults: out.groupResults,
+      designStatus: out.designStatus,
+      language,
     });
     downloadBlob(xml, baseName() + '-prism.pzfx', 'application/xml');
   }
 
   return (
     <div>
+      <section className="card" aria-label={t('统计设计状态')}>
+        <h2>{t('统计设计状态')}</h2>
+        <p>{t(out.designStatus === 'confirmed' ? '已确认独立组设计；组间统计以独立单位 ΔCt 为输入。' : '当前仅提供描述性结果；实验设计尚未确认、无效或暂不支持。')}</p>
+        {out.designIssues.length > 0 && <ul>{out.designIssues.map((issue, index) => <li key={`${issue.code}-${index}`}>{t(issue.message)}</li>)}</ul>}
+      </section>
+      {importReport?.issues.some((i) => ['STD_CURVE_APPLIED', 'RDML_EFFICIENCY_APPLIED', 'MELT_MULTI_PEAK', 'SHEET_AUTO_PICKED'].includes(i.code)) && <section className="card" aria-label={t('导入时记录')}>
+        <h2>{t('导入时记录')}</h2>
+        <p className="hint-line">{t('以下为导入时的历史记录；效率、映射或剔除设置改变后，以当前设置与重新计算的结果为准。')}</p>
+        <ul className="issue-list">{importReport.issues.filter((i) => ['STD_CURVE_APPLIED', 'RDML_EFFICIENCY_APPLIED', 'MELT_MULTI_PEAK', 'SHEET_AUTO_PICKED'].includes(i.code)).map((issue, index) => <li key={`${issue.code}-${index}`}>{t(issue.message)}</li>)}</ul>
+      </section>}
       {autoReport && (
         <div className="card report-card">
           <div className="report-head">
@@ -260,7 +279,7 @@ export default function ResultsPanel({ out, fileName, rows, flags, autoReport, g
         <h2>
           {t("ΔΔCt 结果表")}<span className="hint">
             {out.effMode ? t("Pfaffl 效率校正 · ") : 'Livak 2^-ΔΔCt · '}
-            {t("统计基于每个生物学重复的 ΔCt")}</span>
+            {t('下表为样本或单位的技术测量描述；组间统计另列。')}</span>
         </h2>
         <div className="results-toolbar">
           <div className="gene-tabs" role="tablist" aria-label={t("选择基因")}>
@@ -282,38 +301,34 @@ export default function ResultsPanel({ out, fileName, rows, flags, autoReport, g
               <tr>
                 <th>{t("样本")}</th>
                 <th>{t("组别")}</th>
-                <th>n</th>
+                <th>{t('技术孔数 nTech')}</th>
+                <th>{t('独立单位数 nBio')}</th>
                 <th>{t("平均 Cq")}</th>
                 <th>{t("内参 Cq")}</th>
                 <th>ΔCt</th>
                 <th>ΔΔCt</th>
                 <th>Fold Change</th>
-                <th>{t("p 值（总体）")}</th>
-                <th>Dunnett p</th>
-                <th>{t("显著性")}</th>
-                <th>{t("统计方法")}</th>
+                <th>{t('技术测量 FC SD')}</th>
               </tr>
             </thead>
             <tbody>
               {geneResults.map((r) => (
-                <tr key={r.sample + r.target} className={r.isControl ? 'ctrl' : ''}>
+                <tr key={JSON.stringify([r.plate, r.unitId, r.sample, r.group, r.target])} className={r.isControl ? 'ctrl' : ''}>
                   <td>
                     {r.isControl && t("对照 · ")}
-                    {r.sample}
+                    {r.plate ? `${r.plate} / ` : ''}{r.sample}
                   </td>
                   <td>{r.group || '—'}</td>
-                  <td>{r.n}</td>
+                  <td>{r.nTech}</td>
+                  <td>{r.nBio ?? '—'}</td>
                   <td>{fmt(r.meanCq)}</td>
                   <td>{fmt(r.refCq)}</td>
                   <td>{fmt(r.deltaCt)}</td>
                   <td>{fmt(r.ddCt)}</td>
                   <td>
-                    {fmt(r.foldChange)}±{fmt(r.fcSd)}
+                    {fmt(r.foldChange)}
                   </td>
-                  <td>{formatP(r.pValue)}</td>
-                  <td>{formatP(r.pAdjusted)}</td>
-                  <td className="sig">{r.significance || '—'}</td>
-                  <td style={{ fontSize: '0.78rem', color: 'var(--muted-text)' }}>{t(r.statMethod || '—')}</td>
+                  <td>{fmt(r.fcSd)}</td>
                 </tr>
               ))}
             </tbody>
@@ -321,11 +336,25 @@ export default function ResultsPanel({ out, fileName, rows, flags, autoReport, g
         </div>
       </div>
 
+      {out.designStatus === 'confirmed' && <section className="card" aria-label={t('组间统计与独立单位')}>
+        <h2>{t('组间统计与独立单位')}</h2>
+        <p className="hint-line">{t('每个独立单位贡献一个 ΔCt；技术孔先在单位内汇总。总体 ANOVA 与对照比较分别报告。')}</p>
+        <button onClick={() => downloadCsv(groupResultAoa(out, language), baseName() + '-groups.csv')}>{t('导出组间统计 CSV')}</button>
+        <div className="preview-wrap"><table className="results">
+          <thead><tr><th>{t('组别')}</th><th>nBio</th><th>nTech</th><th>{t('平均 ΔCt')}</th><th>ΔΔCt</th><th>Fold Change</th><th>{t('单位 FC 均值')}</th><th>{t('单位 FC SD')}</th><th>Welch p</th><th>ANOVA p</th><th>Dunnett p</th><th>{t('统计方法')}</th></tr></thead>
+          <tbody>{out.groupResults.filter((r) => r.target === activeGene).map((r) => <tr key={JSON.stringify([r.group, r.target])} className={r.isControl ? 'ctrl' : ''}>
+            <td>{r.group}</td><td>{r.nBio}</td><td>{r.nTech}</td><td>{fmt(r.deltaCtMean)}</td><td>{fmt(r.ddCt)}</td><td>{fmt(r.foldChange)}</td><td>{fmt(r.fcMean)}</td><td>{fmt(r.fcSd)}</td><td>{formatP(r.pValue)}</td><td>{formatP(r.anovaPValue)}</td><td>{formatP(r.pAdjusted)}</td><td>{t(r.statMethod || '—')}</td>
+          </tr>)}</tbody>
+        </table></div>
+      </section>}
+
       <div className="card chart-box">
         <h2>
           {t("柱状图")}{chartOpts.title ? `——${chartOpts.title}` : multiGene ? t("（多基因分段）") : language === 'en' ? ` (${activeGene})` : `（${activeGene}）`}
           <span className="hint">{t("均值 ±")}{' '}{chartOpts.errorBar === 'sem' ? 'SEM' : chartOpts.errorBar === 'none' ? t("无") : 'SD'}</span>
         </h2>
+        <p className="hint-line">{t(out.designStatus === 'confirmed' ? '图中每组的观测值来自独立单位，柱高为各单位 FC 的算术均值。' : '图中误差仅描述技术孔变化，不能解释为生物重复之间的不确定性。')}</p>
+        <p className="hint-line">{t('缺少有效 FC 的样本或组不绘制为零值柱，请结合结果表与质量提示查看。')}</p>
 
         <div className="chart-settings">
           <div style={{ fontWeight: 600, fontSize: '0.9rem', marginBottom: 8, color: 'var(--primary-dark)' }}>
@@ -482,7 +511,7 @@ export default function ResultsPanel({ out, fileName, rows, flags, autoReport, g
                 <input
                   type="text"
                   className="label-input"
-                  value={chartOpts.labelOverrides[s] ?? s}
+                  value={chartOpts.labelOverrides[s] ?? chartData.find((r) => r.sample === s)?.displayLabel ?? s}
                   onChange={(e) => {
                     const next = { ...chartOpts.labelOverrides };
                     next[s] = e.target.value; // 允许临时清空，失焦时回落默认名
@@ -495,7 +524,7 @@ export default function ResultsPanel({ out, fileName, rows, flags, autoReport, g
                       setChartOpts({ ...chartOpts, labelOverrides: next });
                     }
                   }}
-                  aria-label={t("修改 ") + s + t(" 的显示名")}
+                  aria-label={t("修改 ") + (chartData.find((r) => r.sample === s)?.displayLabel ?? s) + t(" 的显示名")}
                 />
                 {sampleGroup.get(s) && (
                   <span style={{ fontSize: '0.76rem', color: 'var(--muted-text)' }}>{sampleGroup.get(s)}</span>
