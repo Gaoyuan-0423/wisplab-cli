@@ -224,6 +224,9 @@ def rehearsal(previous, candidate, destination, previous_service=None):
     for document, archive, manifest in ((old, old_archive, old_manifest), (new, new_archive, new_manifest),
                                         (old, old_archive, old_manifest)):
         installer.deploy(archive, document["archive"]["sha256"], document["version"])
+        embedded_api = "blotlens/index.html" in manifest["sites"]["wb"]["files"]
+        if installer.snippet.read_bytes() != deploy.caddy_snippet(base, embedded_blotlens=embedded_api):
+            raise ValueError("Installed Caddy router differs from the selected WB release")
         for site, identity in manifest["sites"].items():
             actual = release.file_hashes((base / "current" / site).resolve())
             expected = identity["files"]
@@ -243,7 +246,7 @@ def rehearsal(previous, candidate, destination, previous_service=None):
             if release.file_hashes(service_current.resolve() / "dist") != release.file_hashes((base / "current/wb/blotlens").resolve()):
                 raise ValueError("Embedded and standalone BlotLens have different bytes")
         events.append({"version": document["version"], "archiveSha256": document["archive"]["sha256"],
-                       "serviceSha256": old_service_hash if legacy else new["blotlens"]["sha256"]})
+                       "embeddedApiRoute": embedded_api, "serviceSha256": old_service_hash if legacy else new["blotlens"]["sha256"]})
     receipt = {"mode": "isolated-filesystem", "events": events, "networkServices": "simulated",
                "restored": True, "candidateSha256": new["archive"]["sha256"]}
     release.write_json(destination / "recovery.json", receipt)
