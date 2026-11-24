@@ -416,6 +416,15 @@ class Deployment:
             return self.snippet.read_bytes()
         return None
 
+    def check_live(self, config, snippet, release, phase):
+        if self.existing_snippet() != snippet:
+            raise DeployError(f"wisplab.caddy changed during {phase}; refusing to overwrite the newer file")
+        if self.caddyfile.is_symlink() or self.caddyfile.read_bytes() != config:
+            raise DeployError(f"Caddyfile changed during {phase}; refusing to overwrite the newer file")
+        current = Path(os.readlink(self.current)) if self.current.is_symlink() else None
+        if current != release or (release is None and self.current.exists()):
+            raise DeployError(f"current changed during {phase}; refusing to overwrite it")
+
     def deploy(self, archive: Path, checksum: str, version: str):
         manifest, _ = read_archive(archive, checksum, version)
         # Both legacy and single-repository web archives have schemaVersion 1. The
@@ -443,6 +452,7 @@ class Deployment:
             self.validate(self.caddyfile)
             release = self.stage_release(archive, checksum, version, previous)
             if previous == release and candidate_bytes == original and snippet_original == snippet_bytes:
+                self.check_live(original, snippet_original, previous, "preparation")
                 return {"status": "unchanged", "version": version, "current": str(release)}
             backup = self.base / "backups" / (datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid.uuid4().hex[:8])
             backup.mkdir(mode=0o700)
@@ -469,13 +479,7 @@ class Deployment:
                 )
                 atomic_write(candidate, validation_config, 0o600)
                 self.validate(candidate)
-                if self.existing_snippet() != snippet_original:
-                    raise DeployError("wisplab.caddy changed during preparation; refusing to overwrite the newer file")
-                if self.caddyfile.read_bytes() != original:
-                    raise DeployError("Caddyfile changed during preparation; refusing to overwrite the newer file")
-                actual_current = Path(os.readlink(self.current)) if self.current.is_symlink() else None
-                if actual_current != previous or (previous is None and self.current.exists()):
-                    raise DeployError("current changed during preparation; refusing to overwrite it")
+                self.check_live(original, snippet_original, previous, "preparation")
                 if snippet_original != snippet_bytes:
                     atomic_write(self.snippet, snippet_bytes, snippet_mode, snippet_owner)
                     snippet_changed = True
@@ -488,25 +492,24 @@ class Deployment:
                 reload_attempted = True
                 self.reload()
                 self.run(["systemctl", "is-active", "--quiet", "caddy"])
+                self.check_live(candidate_bytes, snippet_bytes, release, "activation")
                 pending.unlink()
                 return {"status": "deployed", "version": version, "current": str(release), "backup": str(backup)}
             except BaseException as error:
                 try:
+                    if config_changed or snippet_changed or current_changed:
+                        self.check_live(candidate_bytes if config_changed else original,
+                                        snippet_bytes if snippet_changed else snippet_original,
+                                        release if current_changed else previous, "activation")
                     if config_changed:
-                        if self.caddyfile.read_bytes() != candidate_bytes:
-                            raise DeployError("Caddyfile changed during activation; manual recovery required")
                         atomic_write(self.caddyfile, original, stat.S_IMODE(config_stat.st_mode),
                                      (config_stat.st_uid, config_stat.st_gid) if os.geteuid() == 0 else None)
                     if snippet_changed:
-                        if self.existing_snippet() != snippet_bytes:
-                            raise DeployError("wisplab.caddy changed during activation; manual recovery required")
                         if snippet_original is None:
                             self.snippet.unlink()
                         else:
                             atomic_write(self.snippet, snippet_original, snippet_mode, snippet_owner)
                     if current_changed:
-                        if not self.current.is_symlink() or Path(os.readlink(self.current)) != release:
-                            raise DeployError("current changed during activation; manual recovery required")
                         if previous is None:
                             self.current.unlink()
                         else:
@@ -514,6 +517,7 @@ class Deployment:
                     if reload_attempted:
                         self.validate(self.caddyfile)
                         self.reload()
+                        self.check_live(original, snippet_original, previous, "rollback")
                     pending.unlink()
                 except BaseException as rollback_error:
                     raise DeployError(f"Deployment failed and rollback needs manual review; preserve {pending} and {backup}. Rollback error: {rollback_error}") from error

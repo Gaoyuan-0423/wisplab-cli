@@ -233,6 +233,25 @@ class DeployTests(unittest.TestCase):
         with self.assertRaisesRegex(deploy.DeployError, "unknown content"):
             self.target.deploy(*new)
 
+    def test_concurrent_edit_at_reload_retains_operator_file_and_recovery_journal(self):
+        self.publish()
+        new = archive(self.root, "new", extra={"wb/blotlens/index.html": b"embedded"})
+        changed = self.caddy.read_bytes() + b"# operator edit\n"
+
+        def edit_at_reload(args, **kwargs):
+            if args == ["systemctl", "reload", "caddy"]:
+                self.caddy.write_bytes(changed)
+            return self.runner(args, **kwargs)
+
+        self.target.runner = edit_at_reload
+        with self.assertRaisesRegex(deploy.DeployError, "rollback needs manual review"):
+            self.target.deploy(*new)
+        self.assertEqual(self.caddy.read_bytes(), changed)
+        journal = json.loads((self.base / "pending.json").read_bytes())
+        self.assertEqual(Path(journal["previous"]).name, "v1")
+        self.assertEqual((Path(journal["backup"]) / "wisplab.caddy").read_bytes(),
+                         deploy.caddy_snippet(self.base, embedded_blotlens=False))
+
     def test_repeating_same_release_is_idempotent(self):
         args = archive(self.root)
         self.target.deploy(*args)
